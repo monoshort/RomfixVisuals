@@ -5,6 +5,7 @@
   "description": "Romfix sterkteberekening — interactieve laagopbouw en stijfheid",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "deploy": "vercel --prod"
   }
 }
