@@ -8,3 +8,4 @@ _xlsx_unzip/
 *.xlsx
 _romfix.zip
 node_modules/
+.vercel

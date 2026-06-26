@@ -2,7 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
-const root = path.resolve(__dirname);
+const root = path.resolve(__dirname, "public");
 const port = 5173;
 const MAX_BODY_BYTES = 4096;
 const EXPERT_PASSWORD = process.env.ROMFIX_EXPERT_PASSWORD || "Romfix123!";
