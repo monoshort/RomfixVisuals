@@ -1,5 +1,9 @@
 {
   "version": 2,
+  "installCommand": "",
+  "buildCommand": "",
+  "outputDirectory": "public",
+  "framework": null,
   "headers": [
     {
       "source": "/(.*)\\.(js|css|html)",
