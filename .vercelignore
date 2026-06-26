@@ -1,0 +1,9 @@
+mcps/
+terminals/
+cloudflared.exe
+_xlsx_unzip/
+*.xlsx
+_romfix.zip
+server.js
+.vercel-cli/
+vercel.tgz

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Romfix — sterkteberekening</title>
+  <meta name="description" content="Interactieve Romfix sterkteberekening — laagopbouw, wapening en stijfheid live." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css?v=20260626-3" />
+</head>
+<body>
+  <header class="container">
+    <div class="header-row">
+      <h1>Romfix <span>sterkteberekening</span></h1>
+      <div class="header-actions">
+        <button type="button" id="guide-toggle" class="guide-toggle" aria-expanded="false" aria-controls="guide-panel">
+          Handleiding
+        </button>
+        <button type="button" id="expert-toggle" class="expert-toggle" aria-pressed="false">
+          Expert mode
+        </button>
+      </div>
+    </div>
+    <p class="intro">Werk van onder naar boven. Wijzigingen zie je direct in profiel en tabel.</p>
+  </header>
+
+  <main class="container" id="main">
+    <div id="expert-dashboard" class="expert-dashboard" hidden></div>
+
+    <div id="standard-view">
+      <section id="guide-panel" class="guide" hidden>
+        <div class="guide-head">
+          <h2 class="guide-title">Handleiding</h2>
+          <p class="guide-lead">Vier stappen, onder → boven. Klik <strong>Open</strong> om direct naar de juiste laag te gaan.</p>
+        </div>
+
+        <ol class="guide-steps">
+          <li class="guide-step guide-step--grond">
+            <div class="guide-step__head">
+              <span class="guide-swatch guide-swatch--grond" aria-hidden="true"></span>
+              <div>
+                <span class="guide-step__nr">1</span>
+                <h3 class="guide-step__title">Ondergrond</h3>
+              </div>
+              <button type="button" class="guide-jump" data-guide-jump="grond">Open</button>
+            </div>
+            <p class="guide-step__text">E-modulus bestaande bodem — geen dikte.</p>
+          </li>
+
+          <li class="guide-step guide-step--ogv">
+            <div class="guide-step__head">
+              <span class="guide-swatch guide-swatch--ogv" aria-hidden="true"></span>
+              <div>
+                <span class="guide-step__nr">2</span>
+                <h3 class="guide-step__title">Ondergrond verbetering</h3>
+              </div>
+              <button type="button" class="guide-jump" data-guide-jump="ogv">Open</button>
+            </div>
+            <p class="guide-step__text">Dikte + vulmateriaal, optioneel wapening.</p>
+          </li>
+
+          <li class="guide-step guide-step--fund">
+            <div class="guide-step__head">
+              <span class="guide-swatch guide-swatch--fund" aria-hidden="true"></span>
+              <div>
+                <span class="guide-step__nr">3</span>
+                <h3 class="guide-step__title">Fundering + overhoogte</h3>
+              </div>
+              <button type="button" class="guide-jump" data-guide-jump="fund">Open</button>
+            </div>
+            <p class="guide-step__text">Nominale dikte + overhoogte, wapening 100/150/200 mm.</p>
+          </li>
+
+          <li class="guide-step guide-step--boven">
+            <div class="guide-step__head">
+              <span class="guide-swatch guide-swatch--boven" aria-hidden="true"></span>
+              <div>
+                <span class="guide-step__nr">4</span>
+                <h3 class="guide-step__title">Bovenconstructie</h3>
+              </div>
+              <button type="button" class="guide-jump" data-guide-jump="boven">Open</button>
+            </div>
+            <p class="guide-step__text">Eén toplaag; telt in dikte, niet in Romfix-stijfheid.</p>
+          </li>
+        </ol>
+
+        <p class="guide-foot">Klik op een laag in het profiel om te bewerken. <strong>W</strong> = wapening aan.</p>
+      </section>
+
+      <section class="kpi-bar" id="pakket-summary" aria-live="polite"></section>
+
+      <section class="work-area">
+        <div class="work-area__grid">
+          <div class="card card--profile">
+            <header class="card__head">
+              <h2 class="card__title">Profiel</h2>
+              <p class="card__sub">Gewapend vs ongewapend · zelfde diktes</p>
+            </header>
+            <div class="visual-compare">
+              <section class="visual-col visual-col--gew">
+                <p class="visual-col-label">Gewapend</p>
+                <div class="visual" id="visual-gew" role="listbox" aria-label="Laagmodel gewapend"></div>
+              </section>
+              <section class="visual-col visual-col--ong">
+                <p class="visual-col-label">Ongewapend</p>
+                <div class="visual" id="visual-ong" role="listbox" aria-label="Laagmodel ongewapend"></div>
+              </section>
+            </div>
+          </div>
+
+          <aside class="card card--input panel">
+            <header class="card__head card__head--panel">
+              <h2 class="card__title" id="panel-title">Invoer</h2>
+              <p class="card__sub panel-hint" id="panel-hint"></p>
+            </header>
+            <nav class="layer-tabs" id="layer-tabs" aria-label="Lagen"></nav>
+            <div id="panel-fields"></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="card card--table">
+        <header class="card__head card__head--row">
+          <div>
+            <h2 class="card__title">Stijfheidstabel</h2>
+            <p class="card__sub">MPa per laag en stijfheidsfactor</p>
+          </div>
+          <button type="button" id="table-toggle" class="table-toggle" aria-expanded="true" aria-controls="table-wrap">
+            Inklappen
+          </button>
+        </header>
+        <div id="table-wrap" class="table-wrap">
+          <table class="table" id="table">
+            <thead>
+              <tr>
+                <th>Laag</th>
+                <th class="num">Dikte (mm)</th>
+                <th class="num">Wap. (mm)</th>
+                <th class="num">Zonder wapening</th>
+                <th class="num">Met wapening</th>
+                <th class="num">Factor</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="expert-login" class="expert-login" hidden>
+    <div class="expert-login__card" role="dialog" aria-labelledby="expert-login-title" aria-modal="true">
+      <h2 id="expert-login-title" class="expert-login__title">Expert mode</h2>
+      <p class="expert-login__text">Alleen voor bevoegde gebruikers. Capping en geavanceerde instellingen.</p>
+      <label class="expert-login__label" for="expert-password">Wachtwoord</label>
+      <input type="password" id="expert-password" class="expert-login__input" autocomplete="current-password" />
+      <p id="expert-login-error" class="expert-login__error" hidden>Onjuist wachtwoord.</p>
+      <div class="expert-login__actions">
+        <button type="button" id="expert-login-cancel" class="expert-login__btn expert-login__btn--ghost">Annuleren</button>
+        <button type="button" id="expert-login-submit" class="expert-login__btn expert-login__btn--primary">Inloggen</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="container">
+    <p>Romfix sterkteberekening v2.3 · indicatief</p>
+  </footer>
+
+  <script src="excel-exact.js?v=20260626-3"></script>
+  <script src="mif-tables.js?v=20260626-3"></script>
+  <script src="app.js?v=20260626-3"></script>
+</body>
+</html>

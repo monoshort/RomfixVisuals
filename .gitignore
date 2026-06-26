@@ -1,0 +1,10 @@
+.vercel/
+.vercel-cli/
+vercel.tgz
+cloudflared.exe
+mcps/
+terminals/
+_xlsx_unzip/
+*.xlsx
+_romfix.zip
+node_modules/

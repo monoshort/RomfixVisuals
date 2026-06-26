@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 52" fill="none" role="img" aria-labelledby="lt">
+  <title id="lt">Romfix</title>
+  <defs>
+    <linearGradient id="lg-bar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8bc734"/>
+      <stop offset="100%" stop-color="#5a8f00"/>
+    </linearGradient>
+  </defs>
+  <rect width="220" height="52" rx="12" fill="#ffffff" stroke="#e2e6f0" stroke-width="1"/>
+  <rect x="10" y="10" width="5" height="32" rx="2" fill="url(#lg-bar)"/>
+  <text x="26" y="35" fill="#1b2a4a" font-family="Inter,system-ui,sans-serif" font-size="22" font-weight="800" letter-spacing="-0.02em">Romfix</text>
+</svg>
