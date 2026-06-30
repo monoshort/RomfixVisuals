@@ -1279,12 +1279,15 @@
     return pk.totaal + grondVisualMm();
   }
 
+  function isMobileViewport() {
+    return window.matchMedia("(max-width: 720px)").matches;
+  }
+
   function visualHeightPx() {
     const total = visualProfielTotaalMm();
-    return Math.min(
-      VISUAL_HEIGHT_MAX,
-      Math.max(VISUAL_HEIGHT_MIN, Math.round(total * VISUAL_PX_PER_MM))
-    );
+    const minH = isMobileViewport() ? 220 : VISUAL_HEIGHT_MIN;
+    const maxH = isMobileViewport() ? 480 : VISUAL_HEIGHT_MAX;
+    return Math.min(maxH, Math.max(minH, Math.round(total * VISUAL_PX_PER_MM)));
   }
 
   function flexMm(mm) {
@@ -1477,6 +1480,14 @@
     renderVisual();
     renderLayerTabs();
     renderTable();
+    if (isMobileViewport()) {
+      const panel = document.getElementById("panel-input");
+      if (panel) {
+        requestAnimationFrame(function () {
+          panel.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
+    }
   }
 
   function dikteLabel(id) {
@@ -3445,6 +3456,15 @@
       setTableOpen(tableWrapEl && tableWrapEl.hidden);
     });
   }
+
+  var resizeTimer;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      renderVisual();
+      if (expertMode) renderExpertVisual();
+    }, 150);
+  });
 
   loadPreset("roadbase");
   render();

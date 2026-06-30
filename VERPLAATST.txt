@@ -1,0 +1,11 @@
+﻿RomfixVisuals is verplaatst naar een aparte projectmap:
+
+  C:\Users\Bernt-JanBosma(Yenlo\prive\RomfixVisuals
+
+Starten:
+  cd "C:\Users\Bernt-JanBosma(Yenlo\prive\RomfixVisuals"
+  node server.js
+
+URL: http://localhost:5173
+
+Deze map (src\RomfixVisuals) kan verwijderd worden.
