@@ -41,16 +41,27 @@ header { padding: 1.5rem 0 0.5rem; }
   gap: 0.65rem;
 }
 
-.project-naam {
-  min-width: 10rem;
-  max-width: 14rem;
-  padding: 0.45rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font: inherit;
-  font-size: 0.8rem;
-  color: var(--navy);
+.export-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0.85rem 0 0.35rem;
+  padding: 0.85rem;
   background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.project-naam {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--navy);
+  background: #fff;
+  min-height: 44px;
 }
 
 .project-naam:focus {
@@ -58,20 +69,38 @@ header { padding: 1.5rem 0 0.5rem; }
   border-color: var(--navy);
 }
 
+.export-bar__btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
 .export-btn {
-  border: 1px solid var(--green);
+  border: 1px solid var(--navy);
   background: var(--card);
   color: var(--navy);
-  padding: 0.45rem 0.85rem;
-  border-radius: 999px;
+  padding: 0.7rem 0.7rem;
+  border-radius: 10px;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
+  min-height: 44px;
+}
+
+.export-btn--primary {
+  background: var(--navy);
+  color: #fff;
+  border-color: var(--navy);
 }
 
 .export-btn:hover {
   background: #f1f5f9;
+}
+
+.export-btn--primary:hover {
+  background: #142038;
+  color: #fff;
 }
 
 .export-btn:disabled {
@@ -79,9 +108,16 @@ header { padding: 1.5rem 0 0.5rem; }
   cursor: wait;
 }
 
-.share-status {
-  font-size: 0.78rem;
+.share-status,
+.pdf-fallback {
+  font-size: 0.88rem;
   color: var(--muted);
+  margin: 0;
+}
+
+.pdf-fallback a {
+  color: var(--navy);
+  font-weight: 700;
 }
 
 .expert-toggle {
@@ -1710,17 +1746,11 @@ body {
   }
 
   .header-actions .guide-toggle,
-  .header-actions .expert-toggle,
-  .header-actions .export-btn {
+  .header-actions .expert-toggle {
     flex: 1;
     min-height: 44px;
     justify-content: center;
     text-align: center;
-  }
-
-  .header-actions .project-naam {
-    flex: 1 1 100%;
-    max-width: none;
   }
 
   .kpi-bar {
@@ -1943,6 +1973,7 @@ body {
   }
 
   .no-print,
+  .export-bar,
   .guide,
   .card--input,
   .layer-tabs,

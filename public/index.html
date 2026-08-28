@@ -9,19 +9,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20260828-pdf" />
+  <link rel="stylesheet" href="styles.css?v=20260828-pdf2" />
 </head>
 <body>
   <header class="container">
     <div class="header-row">
       <h1>Romfix <span>sterkteberekening</span></h1>
       <div class="header-actions">
-        <input type="text" id="project_naam" class="project-naam no-print" placeholder="Projectnaam" maxlength="80" aria-label="Projectnaam voor PDF en mail" />
-        <button type="button" id="btnPrintPdf" class="export-btn no-print">Printen / PDF</button>
-        <button type="button" id="btnDownloadPdf" class="export-btn no-print">Download PDF</button>
-        <button type="button" id="btnMail" class="export-btn no-print">Mailen</button>
-        <button type="button" id="btnShare" class="export-btn no-print">Link delen</button>
-        <span id="shareStatus" class="share-status no-print" hidden></span>
         <button type="button" id="guide-toggle" class="guide-toggle" aria-expanded="false" aria-controls="guide-panel">
           Handleiding
         </button>
@@ -31,6 +25,19 @@
       </div>
     </div>
     <p class="intro">Werk van onder naar boven. Wijzigingen zie je direct in profiel en tabel.</p>
+    <div class="export-bar no-print" id="export-bar">
+      <input type="text" id="project_naam" class="project-naam" placeholder="Projectnaam (voor PDF)" maxlength="80" aria-label="Projectnaam voor PDF en mail" />
+      <div class="export-bar__btns">
+        <button type="button" id="btnPrintPdf" class="export-btn">Printen / PDF</button>
+        <button type="button" id="btnDownloadPdf" class="export-btn export-btn--primary">Download PDF</button>
+        <button type="button" id="btnMail" class="export-btn">Mailen</button>
+        <button type="button" id="btnShare" class="export-btn">Link delen</button>
+      </div>
+      <p id="shareStatus" class="share-status" hidden></p>
+      <p id="pdf-fallback" class="pdf-fallback" hidden>
+        <a id="pdf-fallback-link" href="#" download="romfix-berekening.pdf">Tik hier om de PDF te openen</a>
+      </p>
+    </div>
   </header>
 
   <main class="container" id="main">
@@ -177,6 +184,6 @@
 
   <script src="excel-exact.js?v=20260626-4"></script>
   <script src="mif-tables.js?v=20260626-4"></script>
-  <script src="app.js?v=20260828-pdf"></script>
+  <script src="app.js?v=20260828-pdf2"></script>
 </body>
 </html>

@@ -3478,15 +3478,87 @@
     el.textContent = text || "";
   }
 
-  function currentState() {
-    return {
-      sheet: sheet,
-      wapeningFund: wapeningFund,
-      wapeningOgv: wapeningOgv,
-      materiaalKeuze: materiaalKeuze,
-      values: values,
-      project: projectNaam(),
+  function numOr(v, fallback) {
+    const n = Number(v);
+    return Number.isFinite(n) ? String(n) : String(fallback == null ? "" : fallback);
+  }
+
+  function compactState() {
+    const v = values || {};
+    const mk = materiaalKeuze || {};
+    return [
+      "1",
+      sheet || "roadbase",
+      wapeningFund ? "1" : "0",
+      wapeningOgv ? "1" : "0",
+      v.constructieType || "",
+      v.bovenToplaag || "",
+      numOr(v.bovenKlinkers, 0),
+      numOr(v.bovenAsfalt, 0),
+      numOr(v.bovenBeton, 0),
+      numOr(v.bovenStraatzand, 0),
+      numOr(v.funderingBasis, 0),
+      numOr(v.overhoogte, 0),
+      numOr(v.ogvDikte, 0),
+      numOr(v.eFundering, 0),
+      numOr(v.eOgv, 0),
+      numOr(v.eOndergrond, 0),
+      numOr(v.wapFundering, 0),
+      numOr(v.wapOgv, 0),
+      numOr(v.sifFundering, 0),
+      numOr(v.sifOgv, 0),
+      v.wapTypeFund || "",
+      v.wapTypeOgv || "",
+      v.druklaagAan ? "1" : "0",
+      numOr(v.druklaagDikte, 0),
+      numOr(v.eDruklaag, 0),
+      mk.eFundering || "",
+      mk.eOgv || "",
+      mk.eOndergrond || "",
+      projectNaam().replace(/\|/g, "/"),
+    ].join("|");
+  }
+
+  function applyCompact(raw) {
+    const p = raw.split("|");
+    if (p[0] !== "1" || p.length < 25) return false;
+    sheet = p[1] === "capping" ? "capping" : "roadbase";
+    wapeningFund = p[2] === "1";
+    wapeningOgv = p[3] === "1";
+    values.constructieType = p[4] || values.constructieType;
+    values.bovenToplaag = p[5] || values.bovenToplaag;
+    values.bovenKlinkers = Number(p[6]) || 0;
+    values.bovenAsfalt = Number(p[7]) || 0;
+    values.bovenBeton = Number(p[8]) || 0;
+    values.bovenStraatzand = Number(p[9]) || 0;
+    values.funderingBasis = Number(p[10]) || 0;
+    values.overhoogte = Number(p[11]) || 0;
+    values.ogvDikte = Number(p[12]) || 0;
+    values.eFundering = Number(p[13]) || 0;
+    values.eOgv = Number(p[14]) || 0;
+    values.eOndergrond = Number(p[15]) || 0;
+    values.wapFundering = Number(p[16]) || 0;
+    values.wapOgv = Number(p[17]) || 0;
+    values.sifFundering = Number(p[18]) || 0;
+    values.sifOgv = Number(p[19]) || 0;
+    values.wapTypeFund = p[20] || values.wapTypeFund;
+    values.wapTypeOgv = p[21] || values.wapTypeOgv;
+    values.druklaagAan = p[22] === "1";
+    values.druklaagDikte = Number(p[23]) || 0;
+    values.eDruklaag = Number(p[24]) || 0;
+    materiaalKeuze = {
+      eFundering: p[25] || "",
+      eOgv: p[26] || "",
+      eOndergrond: p[27] || "",
     };
+    if (p[28]) {
+      const el = document.getElementById("project_naam");
+      if (el) el.value = p[28];
+    }
+    values.bovenDikte =
+      (bovenActieveLaag() ? Number(values[bovenActieveLaag().dikteKey]) || 0 : 0) +
+      (Number(values.bovenStraatzand) || 0);
+    return true;
   }
 
   function applyState(st) {
@@ -3504,19 +3576,28 @@
 
   function shareUrl() {
     const u = new URL(location.href.split("#")[0]);
-    u.hash = "s=" + encodeURIComponent(JSON.stringify(currentState()));
+    u.hash = "c=" + encodeURIComponent(compactState());
     return u.toString();
   }
 
   function restoreFromUrl() {
     const raw = location.hash.replace(/^#/, "");
-    if (raw.indexOf("s=") !== 0) return false;
-    try {
-      applyState(JSON.parse(decodeURIComponent(raw.slice(2))));
-      return true;
-    } catch (e) {
-      return false;
+    if (raw.indexOf("c=") === 0) {
+      try {
+        return applyCompact(decodeURIComponent(raw.slice(2)));
+      } catch (e) {
+        return false;
+      }
     }
+    if (raw.indexOf("s=") === 0) {
+      try {
+        applyState(JSON.parse(decodeURIComponent(raw.slice(2))));
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
   }
 
   function resultText() {
@@ -3525,30 +3606,178 @@
     return (kpi + "\n\n" + table).replace(/\n{3,}/g, "\n\n").trim();
   }
 
-  function printPdf() {
-    document.body.classList.add("printing");
-    window.print();
-    setTimeout(function () {
-      document.body.classList.remove("printing");
-    }, 400);
+  function inAppBrowser() {
+    const ua = navigator.userAgent || "";
+    return /Telegram|FBAN|FBAV|Instagram|Line\/|wv\)/i.test(ua) || !!window.TelegramWebviewProxy;
   }
 
-  function loadHtml2Pdf() {
-    return new Promise(function (resolve, reject) {
-      if (window.html2pdf) {
-        resolve(window.html2pdf);
-        return;
-      }
-      const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js";
-      s.onload = function () {
-        resolve(window.html2pdf);
-      };
-      s.onerror = function () {
-        reject(new Error("pdf"));
-      };
-      document.head.appendChild(s);
+  function pdfSafe(s) {
+    return String(s || "")
+      .replace(/[’‘]/g, "'")
+      .replace(/[–—]/g, "-")
+      .replace(/ë/g, "e")
+      .replace(/é/g, "e")
+      .replace(/ü/g, "u")
+      .replace(/ö/g, "o")
+      .replace(/ä/g, "a")
+      .replace(/×/g, "x")
+      .replace(/[^ -~]/g, " ");
+  }
+
+  function parseRgb(css) {
+    const m = String(css || "").match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (!m) return [0.47, 0.71, 0];
+    return [Number(m[1]) / 255, Number(m[2]) / 255, Number(m[3]) / 255];
+  }
+
+  function visualLayers(colId) {
+    const root = document.getElementById(colId);
+    if (!root) return [];
+    return Array.prototype.map
+      .call(root.querySelectorAll(".visual-layer"), function (el) {
+        const nameEl = el.querySelector(".visual-layer__name");
+        const valsEl = el.querySelector(".visual-layer__vals");
+        const cs = window.getComputedStyle(el);
+        return {
+          name: (nameEl && nameEl.textContent.trim()) || "",
+          vals: valsEl ? valsEl.textContent.replace(/\s+/g, " ").trim() : "",
+          mm: parseFloat(el.getAttribute("data-mm")) || 0,
+          rgb: parseRgb(cs.backgroundColor),
+        };
+      })
+      .filter(function (x) {
+        return x.mm > 0 || x.name;
+      });
+  }
+
+  function tableRowsForPdf() {
+    if (!tableEl) return [];
+    return Array.prototype.map.call(tableEl.querySelectorAll("tbody tr, tfoot tr"), function (tr) {
+      return Array.prototype.map.call(tr.querySelectorAll("th,td"), function (td) {
+        return td.innerText.replace(/\s+/g, " ").trim();
+      });
     });
+  }
+
+  function buildPdfBlob() {
+    const title = projectNaam() ? "Romfix - " + projectNaam() : "Romfix sterkteberekening";
+    const date = new Date().toLocaleString("nl-NL");
+    const pk = pakketMeta();
+    const left = visualLayers("visual-gew");
+    const right = visualLayers("visual-ong");
+    const rows = tableRowsForPdf();
+    const pageW = 595;
+    const pageH = 842;
+    const ops = [];
+
+    function esc(s) {
+      return pdfSafe(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+    }
+    function text(x, y, size, s, bold) {
+      ops.push(
+        "BT /" +
+          (bold ? "F2" : "F1") +
+          " " +
+          size +
+          " Tf 1 0 0 1 " +
+          x.toFixed(1) +
+          " " +
+          y.toFixed(1) +
+          " Tm (" +
+          esc(s) +
+          ") Tj ET"
+      );
+    }
+    function rect(x, y, w, h, rgb) {
+      ops.push(
+        rgb[0].toFixed(3) +
+          " " +
+          rgb[1].toFixed(3) +
+          " " +
+          rgb[2].toFixed(3) +
+          " rg " +
+          x.toFixed(1) +
+          " " +
+          y.toFixed(1) +
+          " " +
+          w.toFixed(1) +
+          " " +
+          h.toFixed(1) +
+          " re f"
+      );
+    }
+
+    text(40, 800, 16, title, true);
+    text(40, 782, 9, "Indicatief - " + date, false);
+    text(
+      40,
+      766,
+      10,
+      "Pakket " + pk.totaal + " mm  |  boven " + pk.boven + "  fundering " + pk.fundering + "  OGV " + pk.ogv,
+      false
+    );
+
+    function drawCol(layers, x, label) {
+      text(x, 744, 11, label, true);
+      const totalMm = layers.reduce(function (s, L) {
+        return s + (L.mm || 0);
+      }, 0) || 1;
+      const maxH = 280;
+      let y = 728;
+      layers.forEach(function (L) {
+        const h = Math.max(14, (L.mm / totalMm) * maxH);
+        y -= h;
+        rect(x, y, 240, h - 1.5, L.rgb);
+        const dark = L.rgb[0] + L.rgb[1] + L.rgb[2] < 1.4;
+        ops.push(dark ? "1 1 1 rg" : "0.12 0.16 0.23 rg");
+        text(x + 6, y + Math.max(4, h / 2 - 4), 8, (L.name + "  " + L.vals).slice(0, 42), false);
+      });
+    }
+    drawCol(left, 40, "Gewapend");
+    drawCol(right, 310, "Ongewapend");
+
+    let ty = 420;
+    text(40, ty, 11, "Stijfheidstabel", true);
+    ty -= 16;
+    rows.forEach(function (row) {
+      if (ty < 50) return;
+      text(40, ty, 8, row.join("  |  ").slice(0, 110), false);
+      ty -= 12;
+    });
+    text(40, 36, 8, "Romfix B.V. - geen bindende projectberekening", false);
+
+    const stream = ops.join("\n");
+    const objects = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " +
+        pageW +
+        " " +
+        pageH +
+        "] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>",
+      "<< /Length " + stream.length + " >>\nstream\n" + stream + "\nendstream",
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+    ];
+    let pdf = "%PDF-1.4\n";
+    const offsets = [0];
+    objects.forEach(function (body, i) {
+      offsets.push(pdf.length);
+      pdf += i + 1 + " 0 obj\n" + body + "\nendobj\n";
+    });
+    const xref = pdf.length;
+    pdf += "xref\n0 " + (objects.length + 1) + "\n";
+    pdf += "0000000000 65535 f \n";
+    offsets.slice(1).forEach(function (off) {
+      pdf += String(off).padStart(10, "0") + " 00000 n \n";
+    });
+    pdf +=
+      "trailer << /Size " +
+      (objects.length + 1) +
+      " /Root 1 0 R >>\nstartxref\n" +
+      xref +
+      "\n%%EOF";
+    return new Blob([pdf], { type: "application/pdf" });
   }
 
   function safeFilename() {
@@ -3564,57 +3793,61 @@
     );
   }
 
-  async function downloadPdf() {
+  function offerPdf(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    const fallback = document.getElementById("pdf-fallback");
+    const link = document.getElementById("pdf-fallback-link");
+    if (link) {
+      if (link.dataset.prev) URL.revokeObjectURL(link.dataset.prev);
+      link.href = url;
+      link.setAttribute("download", filename);
+      link.dataset.prev = url;
+    }
+    if (fallback) fallback.hidden = false;
+    try {
+      window.open(url, "_blank");
+    } catch (_) {}
+    setShareStatus("PDF klaar. Werkt de download niet? Tik op ‘Tik hier om de PDF te openen’.");
+  }
+
+  function makePdf() {
+    setTableOpen(true);
+    renderVisual();
+    const blob = buildPdfBlob();
+    offerPdf(blob, safeFilename());
+    return blob;
+  }
+
+  function printPdf() {
+    if (inAppBrowser() || /Mobi|Android|iPhone/i.test(navigator.userAgent || "")) {
+      makePdf();
+      return;
+    }
+    document.body.classList.add("printing");
+    window.print();
+    setTimeout(function () {
+      document.body.classList.remove("printing");
+    }, 500);
+  }
+
+  function downloadPdf() {
     const btn = document.getElementById("btnDownloadPdf");
     if (btn) {
       btn.disabled = true;
       btn.textContent = "PDF maken…";
     }
     try {
-      const html2pdf = await loadHtml2Pdf();
-      const source = document.getElementById("standard-view");
-      if (!source) throw new Error("geen resultaat");
-      const wrap = document.createElement("div");
-      wrap.style.padding = "12px";
-      wrap.style.background = "#fff";
-      wrap.style.color = "#111";
-      wrap.style.fontFamily = "Inter, system-ui, sans-serif";
-      const title = document.createElement("p");
-      title.style.margin = "0 0 4px";
-      title.style.fontWeight = "700";
-      title.style.fontSize = "18px";
-      title.textContent = projectNaam() ? "Romfix — " + projectNaam() : "Romfix sterkteberekening";
-      const meta = document.createElement("p");
-      meta.style.margin = "0 0 12px";
-      meta.style.color = "#555";
-      meta.style.fontSize = "12px";
-      meta.textContent = "Indicatief · " + new Date().toLocaleString("nl-NL");
-      wrap.appendChild(title);
-      wrap.appendChild(meta);
-      wrap.appendChild(source.cloneNode(true));
-      wrap.querySelectorAll(".no-print,.guide,.card--input,.table-toggle,.expert-login").forEach(function (n) {
-        n.remove();
-      });
-      const tw = wrap.querySelector(".table-wrap");
-      if (tw) tw.hidden = false;
-      document.body.appendChild(wrap);
-      await html2pdf()
-        .set({
-          margin: [8, 8, 10, 8],
-          filename: safeFilename(),
-          image: { type: "jpeg", quality: 0.92 },
-          html2canvas: { scale: 2, useCORS: true, windowWidth: 1100 },
-          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-          pagebreak: { mode: ["css", "legacy"] },
-        })
-        .from(wrap)
-        .save();
-      wrap.remove();
-      setShareStatus("PDF gedownload.");
+      makePdf();
     } catch (err) {
       console.error(err);
-      alert("PDF-download lukte niet. Gebruik Printen / PDF en kies ‘Opslaan als PDF’.");
-      printPdf();
+      alert("PDF maken lukte niet. Probeer Chrome of Safari, niet de in-app browser van Telegram.");
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -3624,14 +3857,12 @@
   }
 
   function mailResult() {
-    const titel = projectNaam() ? "Romfix — " + projectNaam() : "Romfix-berekening";
-    const body =
-      titel +
-      "\n\nLink:\n" +
-      shareUrl() +
-      "\n\n" +
-      resultText().slice(0, 1800) +
-      "\n\nIndicatief — geen bindende projectberekening.";
+    const titel = projectNaam() ? "Romfix - " + projectNaam() : "Romfix-berekening";
+    const url = shareUrl();
+    const body = (titel + "\n\n" + url + "\n\n" + resultText()).slice(0, 1600);
+    try {
+      makePdf();
+    } catch (_) {}
     location.href =
       "mailto:?subject=" + encodeURIComponent(titel) + "&body=" + encodeURIComponent(body);
   }
@@ -3639,8 +3870,15 @@
   async function copyShareLink() {
     const url = shareUrl();
     try {
+      history.replaceState(null, "", url);
+    } catch (_) {}
+    try {
       if (navigator.share) {
-        await navigator.share({ title: projectNaam() || "Romfix-berekening", url: url });
+        await navigator.share({
+          title: projectNaam() || "Romfix-berekening",
+          text: "Romfix berekening",
+          url: url,
+        });
         setShareStatus("Gedeeld.");
         return;
       }
@@ -3651,7 +3889,7 @@
       await navigator.clipboard.writeText(url);
       setShareStatus("Link gekopieerd.");
     } catch (_) {
-      prompt("Kopieer deze link:", url);
+      window.prompt("Kopieer deze link:", url);
     }
   }
 
