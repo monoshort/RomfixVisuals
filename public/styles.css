@@ -41,6 +41,49 @@ header { padding: 1.5rem 0 0.5rem; }
   gap: 0.65rem;
 }
 
+.project-naam {
+  min-width: 10rem;
+  max-width: 14rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--navy);
+  background: var(--card);
+}
+
+.project-naam:focus {
+  outline: none;
+  border-color: var(--navy);
+}
+
+.export-btn {
+  border: 1px solid var(--green);
+  background: var(--card);
+  color: var(--navy);
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.export-btn:hover {
+  background: #f1f5f9;
+}
+
+.export-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.share-status {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 .expert-toggle {
   border: 1px solid var(--navy);
   background: var(--card);
@@ -1667,11 +1710,17 @@ body {
   }
 
   .header-actions .guide-toggle,
-  .header-actions .expert-toggle {
+  .header-actions .expert-toggle,
+  .header-actions .export-btn {
     flex: 1;
     min-height: 44px;
     justify-content: center;
     text-align: center;
+  }
+
+  .header-actions .project-naam {
+    flex: 1 1 100%;
+    max-width: none;
   }
 
   .kpi-bar {
@@ -1885,5 +1934,62 @@ body {
 
   .visual-layer:active {
     filter: brightness(1.08);
+  }
+}
+
+@media print {
+  body {
+    background: #fff;
+  }
+
+  .no-print,
+  .guide,
+  .card--input,
+  .layer-tabs,
+  .table-toggle,
+  .expert-login,
+  footer {
+    display: none !important;
+  }
+
+  .container {
+    max-width: none;
+    padding: 0;
+  }
+
+  header {
+    padding: 0 0 0.5rem;
+  }
+
+  .header-actions {
+    display: none !important;
+  }
+
+  .intro {
+    display: none;
+  }
+
+  .work-area__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .visual-compare {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .table-wrap {
+    display: block !important;
+    overflow: visible;
+  }
+
+  .card {
+    box-shadow: none;
+    break-inside: avoid;
+  }
+
+  .print-project {
+    font-size: 0.95rem;
+    color: var(--navy);
+    margin: 0.25rem 0 0.75rem;
   }
 }

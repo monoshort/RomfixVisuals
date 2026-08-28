@@ -9,13 +9,19 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20260626-mobile" />
+  <link rel="stylesheet" href="styles.css?v=20260828-pdf" />
 </head>
 <body>
   <header class="container">
     <div class="header-row">
       <h1>Romfix <span>sterkteberekening</span></h1>
       <div class="header-actions">
+        <input type="text" id="project_naam" class="project-naam no-print" placeholder="Projectnaam" maxlength="80" aria-label="Projectnaam voor PDF en mail" />
+        <button type="button" id="btnPrintPdf" class="export-btn no-print">Printen / PDF</button>
+        <button type="button" id="btnDownloadPdf" class="export-btn no-print">Download PDF</button>
+        <button type="button" id="btnMail" class="export-btn no-print">Mailen</button>
+        <button type="button" id="btnShare" class="export-btn no-print">Link delen</button>
+        <span id="shareStatus" class="share-status no-print" hidden></span>
         <button type="button" id="guide-toggle" class="guide-toggle" aria-expanded="false" aria-controls="guide-panel">
           Handleiding
         </button>
@@ -30,7 +36,7 @@
   <main class="container" id="main">
     <div id="expert-dashboard" class="expert-dashboard" hidden></div>
 
-    <div id="standard-view">
+    <div id="standard-view" class="print-root">
       <section id="guide-panel" class="guide" hidden>
         <div class="guide-head">
           <h2 class="guide-title">Handleiding</h2>
@@ -171,6 +177,6 @@
 
   <script src="excel-exact.js?v=20260626-4"></script>
   <script src="mif-tables.js?v=20260626-4"></script>
-  <script src="app.js?v=20260626-mobile"></script>
+  <script src="app.js?v=20260828-pdf"></script>
 </body>
 </html>

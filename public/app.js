@@ -3466,6 +3466,208 @@
     }, 150);
   });
 
+  function projectNaam() {
+    const el = document.getElementById("project_naam");
+    return el && el.value.trim() ? el.value.trim() : "";
+  }
+
+  function setShareStatus(text) {
+    const el = document.getElementById("shareStatus");
+    if (!el) return;
+    el.hidden = !text;
+    el.textContent = text || "";
+  }
+
+  function currentState() {
+    return {
+      sheet: sheet,
+      wapeningFund: wapeningFund,
+      wapeningOgv: wapeningOgv,
+      materiaalKeuze: materiaalKeuze,
+      values: values,
+      project: projectNaam(),
+    };
+  }
+
+  function applyState(st) {
+    if (!st || typeof st !== "object") return;
+    if (st.sheet) sheet = st.sheet;
+    if (typeof st.wapeningFund === "boolean") wapeningFund = st.wapeningFund;
+    if (typeof st.wapeningOgv === "boolean") wapeningOgv = st.wapeningOgv;
+    if (st.materiaalKeuze) materiaalKeuze = st.materiaalKeuze;
+    if (st.values) values = Object.assign({}, values, st.values);
+    if (st.project) {
+      const el = document.getElementById("project_naam");
+      if (el) el.value = st.project;
+    }
+  }
+
+  function shareUrl() {
+    const u = new URL(location.href.split("#")[0]);
+    u.hash = "s=" + encodeURIComponent(JSON.stringify(currentState()));
+    return u.toString();
+  }
+
+  function restoreFromUrl() {
+    const raw = location.hash.replace(/^#/, "");
+    if (raw.indexOf("s=") !== 0) return false;
+    try {
+      applyState(JSON.parse(decodeURIComponent(raw.slice(2))));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function resultText() {
+    const kpi = pakketSummaryEl ? pakketSummaryEl.innerText : "";
+    const table = tableEl ? tableEl.innerText : "";
+    return (kpi + "\n\n" + table).replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  function printPdf() {
+    document.body.classList.add("printing");
+    window.print();
+    setTimeout(function () {
+      document.body.classList.remove("printing");
+    }, 400);
+  }
+
+  function loadHtml2Pdf() {
+    return new Promise(function (resolve, reject) {
+      if (window.html2pdf) {
+        resolve(window.html2pdf);
+        return;
+      }
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js";
+      s.onload = function () {
+        resolve(window.html2pdf);
+      };
+      s.onerror = function () {
+        reject(new Error("pdf"));
+      };
+      document.head.appendChild(s);
+    });
+  }
+
+  function safeFilename() {
+    const naam = projectNaam() || "berekening";
+    return (
+      "romfix-" +
+      naam
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/gi, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 40) +
+      ".pdf"
+    );
+  }
+
+  async function downloadPdf() {
+    const btn = document.getElementById("btnDownloadPdf");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "PDF maken…";
+    }
+    try {
+      const html2pdf = await loadHtml2Pdf();
+      const source = document.getElementById("standard-view");
+      if (!source) throw new Error("geen resultaat");
+      const wrap = document.createElement("div");
+      wrap.style.padding = "12px";
+      wrap.style.background = "#fff";
+      wrap.style.color = "#111";
+      wrap.style.fontFamily = "Inter, system-ui, sans-serif";
+      const title = document.createElement("p");
+      title.style.margin = "0 0 4px";
+      title.style.fontWeight = "700";
+      title.style.fontSize = "18px";
+      title.textContent = projectNaam() ? "Romfix — " + projectNaam() : "Romfix sterkteberekening";
+      const meta = document.createElement("p");
+      meta.style.margin = "0 0 12px";
+      meta.style.color = "#555";
+      meta.style.fontSize = "12px";
+      meta.textContent = "Indicatief · " + new Date().toLocaleString("nl-NL");
+      wrap.appendChild(title);
+      wrap.appendChild(meta);
+      wrap.appendChild(source.cloneNode(true));
+      wrap.querySelectorAll(".no-print,.guide,.card--input,.table-toggle,.expert-login").forEach(function (n) {
+        n.remove();
+      });
+      const tw = wrap.querySelector(".table-wrap");
+      if (tw) tw.hidden = false;
+      document.body.appendChild(wrap);
+      await html2pdf()
+        .set({
+          margin: [8, 8, 10, 8],
+          filename: safeFilename(),
+          image: { type: "jpeg", quality: 0.92 },
+          html2canvas: { scale: 2, useCORS: true, windowWidth: 1100 },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+          pagebreak: { mode: ["css", "legacy"] },
+        })
+        .from(wrap)
+        .save();
+      wrap.remove();
+      setShareStatus("PDF gedownload.");
+    } catch (err) {
+      console.error(err);
+      alert("PDF-download lukte niet. Gebruik Printen / PDF en kies ‘Opslaan als PDF’.");
+      printPdf();
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Download PDF";
+      }
+    }
+  }
+
+  function mailResult() {
+    const titel = projectNaam() ? "Romfix — " + projectNaam() : "Romfix-berekening";
+    const body =
+      titel +
+      "\n\nLink:\n" +
+      shareUrl() +
+      "\n\n" +
+      resultText().slice(0, 1800) +
+      "\n\nIndicatief — geen bindende projectberekening.";
+    location.href =
+      "mailto:?subject=" + encodeURIComponent(titel) + "&body=" + encodeURIComponent(body);
+  }
+
+  async function copyShareLink() {
+    const url = shareUrl();
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: projectNaam() || "Romfix-berekening", url: url });
+        setShareStatus("Gedeeld.");
+        return;
+      }
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareStatus("Link gekopieerd.");
+    } catch (_) {
+      prompt("Kopieer deze link:", url);
+    }
+  }
+
+  function bindExport() {
+    const printBtn = document.getElementById("btnPrintPdf");
+    const dlBtn = document.getElementById("btnDownloadPdf");
+    const mailBtn = document.getElementById("btnMail");
+    const shareBtn = document.getElementById("btnShare");
+    if (printBtn) printBtn.addEventListener("click", printPdf);
+    if (dlBtn) dlBtn.addEventListener("click", downloadPdf);
+    if (mailBtn) mailBtn.addEventListener("click", mailResult);
+    if (shareBtn) shareBtn.addEventListener("click", copyShareLink);
+  }
+
   loadPreset("roadbase");
+  restoreFromUrl();
+  bindExport();
   render();
 })();
