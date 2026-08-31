@@ -1735,21 +1735,56 @@
 
   function materiaalMatch(key, listOverride) {
     const list = listOverride || materiaalListForKey(key);
-    const v = values[key];
+    const v = Number(values[key]);
     const chosen = normalizeLichtFunderingLabel(materiaalKeuze[key]) || materiaalKeuze[key];
     if (chosen) {
       const exact = list.find(function (m) {
         return m.label === chosen && m.mpa === v;
       });
       if (exact) return exact;
-      const byLabel = list.find(function (m) {
-        return m.label === chosen || normalizeLichtFunderingLabel(m.label) === chosen;
-      });
-      if (byLabel) return byLabel;
     }
-    return list.find(function (m) {
+    const byMpa = list.filter(function (m) {
       return m.mpa === v;
     });
+    if (chosen) {
+      const prefer = byMpa.find(function (m) {
+        return m.label === chosen || normalizeLichtFunderingLabel(m.label) === chosen;
+      });
+      if (prefer) return prefer;
+    }
+    return byMpa[0] || null;
+  }
+
+  function visibleMateriaalSelect(key) {
+    const roots = [];
+    if (expertMode && expertDashboardEl && !expertDashboardEl.hidden) {
+      roots.push(expertDashboardEl);
+    }
+    if (!expertMode && panelFields) roots.push(panelFields);
+    let i;
+    for (i = 0; i < roots.length; i++) {
+      const el = roots[i].querySelector('.materiaal-select[data-key="' + key + '"]');
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function syncMateriaalFromVisibleSelect(key) {
+    const sel = visibleMateriaalSelect(key);
+    if (!sel || !sel.value) return;
+    const parts = sel.value.split("|");
+    if (!parts[0] || parts[0] === "__exit__") return;
+    if (parts[0] === "custom") {
+      materiaalKeuze[key] = "";
+      return;
+    }
+    const label = parts.slice(1).join("|");
+    const list = materiaalListForKey(key);
+    const fromList = list.find(function (m) {
+      return m.label === label || normalizeLichtFunderingLabel(m.label) === label;
+    });
+    materiaalKeuze[key] = fromList ? fromList.label : label;
+    if (fromList) values[key] = fromList.mpa;
   }
 
   function syncMateriaalKeuzeFromValues(key) {
@@ -1824,7 +1859,7 @@
   }
 
   function syncMateriaalSelect(key) {
-    const sel = document.getElementById("mat-" + key);
+    const sel = visibleMateriaalSelect(key) || document.getElementById("mat-" + key);
     if (!sel) return;
     sel.innerHTML = materiaalSelectOptions(key);
   }
@@ -2473,10 +2508,15 @@
     return visualStack("fund", f.dikteTotaal, parts.join(""), placeholder);
   }
 
+  function laagMateriaalNaam(key) {
+    return materiaalLabel(key) || "";
+  }
+
   function renderOgvVisual(fundWap, ogvWap) {
     const fundOn = fundWap !== undefined ? fundWap : wapeningFund;
     const ogvOn = ogvWap !== undefined ? ogvWap : wapeningOgv;
-    const label = ogvLabel();
+    const mat = laagMateriaalNaam("eOgv");
+    const label = ogvLabel() + (mat ? " · " + mat : "");
     const ong = calcAt(fundOn, false);
     const gew = calcAt(fundOn, true);
     const st = gew.state;
@@ -2595,7 +2635,15 @@
     let html = renderBovenVisual();
     html += renderOnderconstructieVisual(fundWap, ogvWap);
     const grondMm = grondVisualMm();
-    html += segmentBtn("grond", "grond", "Ondergrond", null, materiaalMpa("eOndergrond"), grondMm);
+    const grondMat = laagMateriaalNaam("eOndergrond");
+    html += segmentBtn(
+      "grond",
+      "grond",
+      "Ondergrond" + (grondMat ? " · " + grondMat : ""),
+      null,
+      materiaalMpa("eOndergrond"),
+      grondMm
+    );
     return html;
   }
 
@@ -2772,7 +2820,7 @@
     rows.push(
       {
         id: "ogv",
-        laag: "↳ " + p.labels.ogv,
+        laag: "↳ " + p.labels.ogv + (laagMateriaalNaam("eOgv") ? " · " + laagMateriaalNaam("eOgv") : ""),
         dikte: String(values.ogvDikte),
         wapMm: wapeningOgv ? values.wapOgv : "—",
         ong: ogvOng.output.D14,
@@ -2782,7 +2830,7 @@
       },
       {
         id: "grond",
-        laag: "Ondergrond",
+        laag: "Ondergrond" + (laagMateriaalNaam("eOndergrond") ? " · " + laagMateriaalNaam("eOndergrond") : ""),
         dikte: "—",
         wapMm: "—",
         ong: values.eOndergrond,
@@ -3819,6 +3867,10 @@
   function collectReport() {
     syncSheetFromInvoer();
     normalizeMateriaalKeuzeAliases();
+    ["eFundering", "eOgv", "eOndergrond", "eDruklaag"].forEach(function (key) {
+      syncMateriaalFromVisibleSelect(key);
+      syncMateriaalKeuzeFromValues(key);
+    });
     syncDruklaagFromFundering();
     syncMifFromWapening();
     invalidateCalcCache();
@@ -3877,7 +3929,7 @@
       wapeningFund ? factor(fundOng.output.D13, fundGew.output.E13) + "×" : "—",
     ]);
     tableRows.push([
-      "  " + p.labels.ogv,
+      "  " + p.labels.ogv + (laagMateriaalNaam("eOgv") ? " · " + laagMateriaalNaam("eOgv") : ""),
       fmtMm(values.ogvDikte),
       wapeningOgv ? fmtMm(values.wapOgv) : "—",
       fmtMpa(ogvOng.output.D14),
@@ -3885,7 +3937,7 @@
       wapeningOgv ? factor(ogvOng.output.D14, ogvGew.output.E14) + "×" : "—",
     ]);
     tableRows.push([
-      "Ondergrond",
+      "Ondergrond" + (laagMateriaalNaam("eOndergrond") ? " · " + laagMateriaalNaam("eOndergrond") : ""),
       "—",
       "—",
       fmtMpa(values.eOndergrond),
