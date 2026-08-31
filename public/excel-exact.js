@@ -222,12 +222,20 @@ function computeRomfixWerkboek(inp) {
             : B12 + B13 + B14 - C20;
 
     s.B29 = B20 === 0 || B20 === "" ? 0 : B20;
+    if (B14 > 0 && B20 > B14) {
+      s.B28 = 0;
+      s.B29 = B14;
+      s.B30 = 0;
+    }
+    s.B28 = Math.max(0, s.B28);
+    s.B30 = Math.max(0, s.B30);
 
     s.C25 = isVastF13(F13) ? C13 : s.B25 === 0 ? 0 : s.E46;
 
     s.C27 = s.B27 === 0 ? 0 : s.D46;
     if (sifLicht > 0 && lichtMm > 0 && s.B27 > 0) {
-      s.C27 = roundExcel(Math.min(sifLicht * s.D28, mifLicht * eLicht));
+      /* SIF op de lichte laag: factor × stijfheid eronder (OGV), niet capped op E-schuimglas (50 MPa). */
+      s.C27 = roundExcel(sifLicht * s.D28);
     }
 
     s.C28 = s.B28 === 0 ? 0 : s.C46;

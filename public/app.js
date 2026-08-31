@@ -2069,6 +2069,13 @@
     if (key === "funderingBasis" || key === "druklaagDikte") {
       clampDruklaagDiktes();
     }
+    if (key === "ogvDikte" && wapeningOgv) {
+      values.wapOgv = values.ogvDikte;
+      const wapVal = document.getElementById("v-wapOgv");
+      const wapSl = document.getElementById("f-wapOgv");
+      if (wapVal) wapVal.textContent = values.wapOgv + " mm";
+      if (wapSl) wapSl.value = values.wapOgv;
+    }
     if (materiaalListForKey(key).length) {
       syncMateriaalKeuzeFromValues(key);
       syncMateriaalSelect(key);
@@ -2346,7 +2353,7 @@
           segmentBtn(
             "fund-licht",
             "licht",
-            lichtLabel,
+            fundOn ? lichtLabel + " · SIF 10" : lichtLabel,
             f.lichtDikte,
             lichtEq,
             f.lichtDikte

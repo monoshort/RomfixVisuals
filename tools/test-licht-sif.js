@@ -59,8 +59,8 @@ ok(
   "B27=" + lichtOn.state.B27 + " B26=" + lichtOn.state.B26 + " B25=" + lichtOn.state.B25
 );
 ok(
-  "licht SIF 10: C27 > eLicht",
-  lichtOn.state.C27 > 50,
+  "licht SIF 10: C27 volgt OGV (≈ 10 × D28)",
+  lichtOn.state.C27 > 50 && Math.abs(lichtOn.state.C27 - 10 * lichtOn.state.D28) <= 15,
   "C27=" + lichtOn.state.C27 + " D28=" + lichtOn.state.D28
 );
 ok(
