@@ -4116,8 +4116,6 @@
       cloneVisualsHtml() +
       "<h2>Stijfheidstabel</h2>" +
       htmlTable(["Laag", "Dikte", "Wapening", "Zonder wapening", "Met wapening", "Factor"], r.tableRows) +
-      "<h2>Invoer (volledig)</h2>" +
-      htmlTable(["Parameter", "Waarde"], r.invoer, true) +
       "<h2>Toelichting</h2>" +
       '<p class="print-note">' +
       htmlEscape(r.disclaimer) +
@@ -4436,9 +4434,6 @@
       r.tableRows,
       [155, 95, 70, 70, 70, 55]
     );
-
-    heading("Invoer (volledig)");
-    drawTable(["Parameter", "Waarde"], r.invoer, [190, 325], { kv: true });
 
     heading("Toelichting");
     para(r.disclaimer, 8);
