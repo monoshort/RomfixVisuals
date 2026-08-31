@@ -82,6 +82,10 @@ function computeRomfixWerkboek(inp) {
   const lichtMm = Math.max(0, Math.min(B13, Number(inp.B13Licht) || 0));
   const eLicht = lichtMm > 0 ? Number(inp.C13Licht) || C13 : C13;
   const fundDrukMm = Math.max(0, B13 - lichtMm);
+  /** BIMS/schuimglas: SIF 10 op de lichte laag; druklaag gebruikt D19 (geogrid). */
+  const sifLicht = lichtMm > 0 ? Number(inp.sifLicht) || 0 : 0;
+  const mifLicht =
+    inp.mifLicht != null && inp.mifLicht !== "" ? Number(inp.mifLicht) : mif1;
 
   const C19 = B12 + B13;
   const C20 = B12 + B13 + B14;
@@ -104,7 +108,7 @@ function computeRomfixWerkboek(inp) {
           ? b13Eff - b19Eff
           : B12 + b13Eff - C19;
     const b26 = b19Eff === 0 ? 0 : b19Eff;
-    return { B25: b25, B26: b26, B27: lichtMm + b27druk };
+    return { B25: b25, B26: b26, B27: b27druk };
   }
 
   const s = {
@@ -179,22 +183,20 @@ function computeRomfixWerkboek(inp) {
     s.F46 = austroadsAvg(s.C15, s.B14, s.C14);
     s.G46 = austroadsAvg(s.G37, s.B13, s.C13);
 
-    const b19Eff = lichtMm > 0 ? Math.min(B19, fundDrukMm) : B19;
-    const b13Eff = lichtMm > 0 ? fundDrukMm : B13;
-    const fundZones = calcFundZoneSplit(b13Eff, b19Eff);
-    s.B25 = fundZones.B25;
-    s.B26 = fundZones.B26;
-    s.B27 = fundZones.B27;
+    if (lichtMm > 0) {
+      const wap = Math.max(0, Math.min(B19, fundDrukMm));
+      s.B26 = wap;
+      s.B25 = Math.max(0, fundDrukMm - wap);
+      s.B27 = lichtMm;
+    } else {
+      const fundZones = calcFundZoneSplit(B13, B19);
+      s.B25 = fundZones.B25;
+      s.B26 = fundZones.B26;
+      s.B27 = fundZones.B27;
+    }
 
     if (lichtMm > 0 && s.B27 > 0) {
-      const b27druk = Math.max(0, s.B27 - lichtMm);
-      const eLichtZone = austroadsAvg(s.D28, lichtMm, eLicht);
-      if (b27druk > 0) {
-        const eDrukZone = austroadsAvg(s.D28, lichtMm, C13);
-        s.D46 = thennEq2(lichtMm, eLichtZone, b27druk, eDrukZone);
-      } else {
-        s.D46 = eLichtZone;
-      }
+      s.D46 = austroadsAvg(s.D28, lichtMm, eLicht);
     } else {
       s.D46 = austroadsAvg(s.D28, s.B27, C13);
     }
@@ -224,6 +226,9 @@ function computeRomfixWerkboek(inp) {
     s.C25 = isVastF13(F13) ? C13 : s.B25 === 0 ? 0 : s.E46;
 
     s.C27 = s.B27 === 0 ? 0 : s.D46;
+    if (sifLicht > 0 && lichtMm > 0 && s.B27 > 0) {
+      s.C27 = roundExcel(Math.min(sifLicht * s.D28, mifLicht * eLicht));
+    }
 
     s.C28 = s.B28 === 0 ? 0 : s.C46;
 

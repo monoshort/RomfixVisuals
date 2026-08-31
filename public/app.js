@@ -174,11 +174,11 @@
     },
     "fund-licht": {
       label: "Licht fundering",
-      hint: "BIMS of schuimglas — onder de druklaag, zonder wapening.",
+      hint: "BIMS of schuimglas — gewapend met Romfix SIF 10 (E'Grid + R'Cel).",
     },
     "fund-druk": {
       label: "Druklaag",
-      hint: "Dragende laag boven licht vulmateriaal; materiaal, wapening en MIF hier.",
+      hint: "Dragende laag boven licht vulmateriaal; altijd voorzien van geogrid (SIF 5).",
     },
     ogv: {
       label: "Ondergrond verbetering",
@@ -277,8 +277,11 @@
   let expertMode = false;
   let expertDashBuilt = false;
   let expertEventsBound = false;
+  const WAPENING_LICHT_TYPE = "grid_cell";
+  const WAPENING_DRUKLAAG_TYPE = "grid_only";
+
   let calcCache = null;
-  let mifLookupMeta = { fund: null, ogv: null };
+  let mifLookupMeta = { fund: null, ogv: null, licht: null };
 
   function invalidateCalcCache() {
     calcCache = null;
@@ -411,10 +414,18 @@
         materiaalKeuze.eDruklaag = "Steenslag/steenmengsels";
       }
       clampDruklaagDiktes();
+      lockLichtWapeningTypes();
       if (!wasDruklaag && selected === "fund") selected = "fund-druk";
     } else {
       values.druklaagAan = false;
       values.eLichtFundering = values.eFundering;
+      values.sifLicht = 0;
+      values.mifLicht = 0;
+      if (wasDruklaag) {
+        values.wapTypeFund = WAPENING_TYPE_DEFAULT;
+        const def = wapeningTypeById(WAPENING_TYPE_DEFAULT);
+        if (def) values.sifFundering = def.sif;
+      }
       syncMateriaalKeuzeFromValues("eFundering");
       if (wasDruklaag && (selected === "fund-druk" || selected === "fund-licht")) {
         selected = "fund";
@@ -422,18 +433,58 @@
     }
   }
 
+  function lockLichtWapeningTypes() {
+    const druk = wapeningTypeById(WAPENING_DRUKLAAG_TYPE);
+    const licht = wapeningTypeById(WAPENING_LICHT_TYPE);
+    if (druk) {
+      values.wapTypeFund = druk.id;
+      values.sifFundering = druk.sif;
+    }
+    if (licht) {
+      values.sifLicht = licht.sif;
+    }
+  }
+
   function syncMifFromWapening() {
     if (typeof window.RomfixMif === "undefined") return;
+    if (isDruklaagActief()) lockLichtWapeningTypes();
     if (wapeningFund) {
-      const info = window.RomfixMif.lookupMif(
-        normalizeWapeningId(values.wapTypeFund || WAPENING_TYPE_DEFAULT),
-        mifOnderbouwFund(),
-        isDruklaagActief() ? values.eDruklaag : values.eFundering
-      );
-      values.mifFundering = info.mif;
-      mifLookupMeta.fund = info;
+      const onderbouw = mifOnderbouwFund();
+      if (isDruklaagActief()) {
+        const drukInfo = window.RomfixMif.lookupMif(
+          WAPENING_DRUKLAAG_TYPE,
+          onderbouw,
+          values.eDruklaag || values.eFundering
+        );
+        values.mifFundering = drukInfo.mif;
+        mifLookupMeta.fund = drukInfo;
+        const lichtInfo = window.RomfixMif.lookupMif(
+          WAPENING_LICHT_TYPE,
+          onderbouw,
+          values.eLichtFundering || values.eFundering
+        );
+        values.mifLicht = lichtInfo.mif;
+        values.sifLicht = (wapeningTypeById(WAPENING_LICHT_TYPE) || {}).sif || 10;
+        mifLookupMeta.licht = lichtInfo;
+      } else {
+        const info = window.RomfixMif.lookupMif(
+          normalizeWapeningId(values.wapTypeFund || WAPENING_TYPE_DEFAULT),
+          onderbouw,
+          values.eFundering
+        );
+        values.mifFundering = info.mif;
+        mifLookupMeta.fund = info;
+        mifLookupMeta.licht = null;
+        values.sifLicht = 0;
+        values.mifLicht = 0;
+      }
     } else {
       mifLookupMeta.fund = null;
+      mifLookupMeta.licht = null;
+      if (!isDruklaagActief()) {
+        values.sifLicht = 0;
+        values.mifLicht = 0;
+      }
     }
     if (wapeningOgv) {
       const info = window.RomfixMif.lookupMif(
@@ -602,7 +653,10 @@
     const standaardWap = normalizeWapFundering(values.wapFundering);
     let wapDikte = 0;
     if (fundOn) {
-      wapDikte = wapFunderingWerkingsdikte(standaardWap, drukStackMm);
+      /* Bij BIMS/schuimglas: hele druklaag heeft geogrid; lichtlaag is SIF 10. */
+      wapDikte = druklaagAan
+        ? drukStackMm
+        : wapFunderingWerkingsdikte(standaardWap, drukStackMm);
     }
     return {
       basis,
@@ -642,6 +696,8 @@
     if (f.druklaagAan && f.lichtDikte > 0) {
       inp.B13Licht = f.lichtDikte;
       inp.C13Licht = f.eLicht;
+      inp.sifLicht = fundOn ? values.sifLicht || 10 : 0;
+      inp.mifLicht = values.mifLicht;
     }
     return inp;
   }
@@ -831,6 +887,8 @@
       druklaagDikte: DRUKLAAG_DEFAULT_MM,
       eDruklaag: 150,
       eLichtFundering: p.eFundering,
+      sifLicht: 0,
+      mifLicht: 0,
     };
     syncWapeningTypesFromSif();
     syncDruklaagFromFundering();
@@ -885,9 +943,13 @@
   }
 
   function wapeningTypeHtml(layer, disabled) {
+    const lockedLicht = layer === "fund" && isDruklaagActief();
+    if (lockedLicht) disabled = true;
     const typeKey = wapeningTypeKey(layer);
     const sifKey = sifKeyForLayer(layer);
-    const curType = normalizeWapeningId(values[typeKey] || WAPENING_TYPE_DEFAULT);
+    const curType = normalizeWapeningId(
+      lockedLicht ? WAPENING_DRUKLAAG_TYPE : values[typeKey] || WAPENING_TYPE_DEFAULT
+    );
     const cur = wapeningTypeById(curType);
     let opts = "";
     WAPENING_TYPES.forEach(function (t) {
@@ -929,12 +991,16 @@
       "</strong>" +
       (cur ? " · " + cur.product : "") +
       "</p>" +
+      (lockedLicht
+        ? '<p class="field-note">Vast bij BIMS/schuimglas: druklaag = geogrid (SIF 5). Het lichte vulmateriaal eronder = Romfix SIF 10.</p>'
+        : "") +
       factorLegendNote() +
       "</div>"
     );
   }
 
   function applyWapeningType(layer, typeId) {
+    if (layer === "fund" && isDruklaagActief()) return;
     const t = wapeningTypeById(typeId);
     if (!t) return;
     values[wapeningTypeKey(layer)] = t.id;
@@ -1374,9 +1440,9 @@
     let html =
       '<div class="field-section druklaag-section">' +
       '<div class="field-section-title">Druklaag (automatisch)</div>' +
-      '<p class="field-note">Licht vulmateriaal vereist een dragende laag erboven. Wapening geldt alleen voor de druklaag (' +
+      '<p class="field-note">Licht vulmateriaal (BIMS/schuimglas) krijgt Romfix SIF 10. Deze druklaag erboven krijgt geogrid (SIF 5), ' +
       f.drukStackMm +
-      " mm incl. overhoogte).</p>";
+      " mm incl. overhoogte.</p>";
     FIELDS.fund.druklaag.forEach(function (fld) {
       html += fieldHtml(fld, disabled);
     });
@@ -1396,7 +1462,14 @@
     return (
       '<div class="field-section">' +
       '<div class="field-section-title">Licht fundering</div>' +
-      '<p class="field-note">Automatisch actief bij BIMS of schuimglas. Geen wapening op deze laag. Kies een granulaat of ↩ standaard fundering om terug te gaan.</p>' +
+      '<p class="field-note">Automatisch actief bij BIMS of schuimglas. Deze laag is gewapend met Romfix SIF 10 (E\'Grid + R\'Cel). Kies een granulaat of ↩ standaard fundering om terug te gaan.</p>' +
+      (wapeningFund
+        ? '<p class="field-note"><strong>SIF 10</strong> · MIF ' +
+          formatFactor(values.mifLicht || 0) +
+          " · hele laagdikte " +
+          f.lichtDikte +
+          " mm.</p>"
+        : '<p class="field-note">Wapening staat uit — licht vulmateriaal telt dan ongewapend.</p>') +
       materiaalSectionHtml(FIELDS.fund.materiaal, null) +
       exitLichtFunderingBtnHtml() +
       '<p class="field-note">Dikte licht laag: <strong>' +
@@ -2057,12 +2130,14 @@
       html += '<div class="field-section"><div class="field-section-title">Wapening (druklaag)</div>';
       html += wapeningToggleHtml("fund");
       html += wapeningTypeHtml("fund", !layerWap);
-      wapeningFieldsExceptSif("fund").forEach(function (f) {
-        html += fieldHtml(f, !layerWap);
-      });
       html += mifDisplayHtml("fund", !layerWap);
       if (!layerWap) {
-        html += '<p class="field-note">Wapening staat uit — druklaag telt dan als ongewapend granulaat.</p>';
+        html += '<p class="field-note">Wapening staat uit — druklaag telt dan als ongewapend granulaat, licht vulmateriaal zonder SIF 10.</p>';
+      } else {
+        html +=
+          '<p class="field-note">Geogrid over de hele druklaag (' +
+          fundMeta(true).drukStackMm +
+          " mm). Geen geocel-hoogte op deze laag.</p>";
       }
       html += "</div>";
     } else if (groups && groups.dikte && groups.dikte.length) {
@@ -2236,14 +2311,16 @@
         (lichtMat && lichtMat.label) ||
         normalizeLichtFunderingLabel(materiaalKeuze.eFundering) ||
         "Licht fundering";
-      const eqDruk = fundOn ? eqGew : eqOng;
+      const eqDruk = fundOn
+        ? mpaVal(gew.state.C26 || f.eDruk)
+        : mpaVal(f.eDruk);
 
       if (f.drukStackMm > 0) {
         parts.push(
           segmentBtn(
             "fund-druk",
             "druk",
-            "Druklaag",
+            fundOn ? "Druklaag · geogrid" : "Druklaag",
             f.drukStackMm,
             eqDruk,
             f.drukStackMm,
@@ -2252,13 +2329,16 @@
         );
       }
       if (f.lichtDikte > 0) {
+        const lichtEq = fundOn
+          ? mpaVal(gew.state.C27 || f.eLicht)
+          : mpaVal(f.eLicht);
         parts.push(
           segmentBtn(
             "fund-licht",
             "licht",
-            lichtLabel,
+            fundOn ? lichtLabel + " · SIF 10" : lichtLabel,
             f.lichtDikte,
-            mpaVal(f.eLicht),
+            lichtEq,
             f.lichtDikte
           )
         );
@@ -2627,27 +2707,55 @@
         sub: true,
       });
     }
+    rows.push({
+      id: "onder",
+      laag: "Onderconstructie",
+      dikte: onderconstructieOmschrijving(),
+      wapMm: "—",
+      ong: null,
+      gew: null,
+      wap: wapeningFund || wapeningOgv,
+      sub: false,
+    });
+    rows.push({
+      id: "fund",
+      laag: "↳ " + p.labels.fund,
+      dikte: f.basis + " + " + f.oh + " = " + f.dikteTotaal,
+      wapMm: wapeningFund && !f.druklaagAan ? f.wapDikte : "—",
+      ong: fundOng.output.D13,
+      gew: fundGew.output.E13,
+      wap: wapeningFund,
+      sub: true,
+    });
+    if (f.druklaagAan) {
+      const lichtMat = materiaalMatch("eFundering", MATERIAAL_LAAG);
+      rows.push(
+        {
+          id: "fund-druk",
+          laag: "↳ ↳ Druklaag · geogrid",
+          dikte: String(f.drukStackMm),
+          wapMm: wapeningFund ? "geogrid" : "—",
+          ong: fundOng.state.C25 || f.eDruk,
+          gew: fundGew.state.C26 || fundGew.output.E13,
+          wap: wapeningFund,
+          sub: true,
+        },
+        {
+          id: "fund-licht",
+          laag:
+            "↳ ↳ " +
+            ((lichtMat && lichtMat.label) || "Licht") +
+            " · SIF 10",
+          dikte: String(f.lichtDikte),
+          wapMm: wapeningFund ? "SIF 10" : "—",
+          ong: fundOng.state.C27 || f.eLicht,
+          gew: fundGew.state.C27 || f.eLicht,
+          wap: wapeningFund,
+          sub: true,
+        }
+      );
+    }
     rows.push(
-      {
-        id: "onder",
-        laag: "Onderconstructie",
-        dikte: onderconstructieOmschrijving(),
-        wapMm: "—",
-        ong: null,
-        gew: null,
-        wap: wapeningFund || wapeningOgv,
-        sub: false,
-      },
-      {
-        id: "fund",
-        laag: "↳ " + p.labels.fund,
-        dikte: f.basis + " + " + f.oh + " = " + f.dikteTotaal,
-        wapMm: wapeningFund ? f.wapDikte : "—",
-        ong: fundOng.output.D13,
-        gew: fundGew.output.E13,
-        wap: wapeningFund,
-        sub: true,
-      },
       {
         id: "ogv",
         laag: "↳ " + p.labels.ogv,
@@ -3070,15 +3178,17 @@
             : materiaalSectionHtml(FIELDS.fund.materiaal, "fund")) +
           '<div class="field-section" data-expert-wap-section="fund">' +
           '<div class="field-section-title">' +
-          (f.druklaagAan ? "Wapening (druklaag)" : "Wapening") +
+          (f.druklaagAan ? "Wapening (SIF 10 licht + geogrid druklaag)" : "Wapening") +
           "</div>" +
           expertWapeningToggleHtml("fund") +
           wapeningTypeHtml("fund", !wapeningFund) +
-          wapeningFieldsExceptSif("fund")
-            .map(function (fld) {
-              return fieldHtml(fld, !wapeningFund);
-            })
-            .join("") +
+          (f.druklaagAan
+            ? '<p class="field-note">Geogrid over de hele druklaag; SIF 10 op BIMS/schuimglas. Geen geocel-hoogte.</p>'
+            : wapeningFieldsExceptSif("fund")
+                .map(function (fld) {
+                  return fieldHtml(fld, !wapeningFund);
+                })
+                .join("")) +
           mifDisplayHtml("fund", !wapeningFund) +
           "</div>",
         "fund"
