@@ -2353,7 +2353,7 @@
           segmentBtn(
             "fund-licht",
             "licht",
-            fundOn ? lichtLabel + " · SIF 10" : lichtLabel,
+            lichtLabel,
             f.lichtDikte,
             lichtEq,
             f.lichtDikte
@@ -2761,7 +2761,7 @@
           id: "fund-licht",
           laag: "↳ ↳ " + ((lichtMat && lichtMat.label) || "Licht"),
           dikte: String(f.lichtDikte),
-          wapMm: wapeningFund ? "SIF 10" : "—",
+          wapMm: "—",
           ong: fundOng.state.C27 || f.eLicht,
           gew: fundGew.state.C27 || f.eLicht,
           wap: wapeningFund,
