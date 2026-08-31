@@ -719,6 +719,16 @@
     });
   }
 
+
+  /** Print/PDF: type volgt de gekozen toplaag, niet het Excel-blad (roadbase heette altijd “Beton + fundering”). */
+  function constructiePrintLabel() {
+    const bovenL = bovenActieveLaag();
+    if (bovenL) return bovenL.label + " + fundering";
+    const c = constructieBySheet(sheet);
+    return c ? c.label : "";
+  }
+
+
   function inferSheet() {
     const c = CONSTRUCTIE_TYPES.find(function (x) {
       return x.id === values.constructieType;
@@ -3711,9 +3721,36 @@
   }
 
   function resultText() {
-    const kpi = pakketSummaryEl ? pakketSummaryEl.innerText : "";
-    const table = tableEl ? tableEl.innerText : "";
-    return (kpi + "\n\n" + table).replace(/\n{3,}/g, "\n\n").trim();
+    const r = collectReport();
+    const lines = [];
+    lines.push(r.title);
+    lines.push(r.date + " · " + r.sheetTab);
+    lines.push(
+      "Pakket " +
+        r.pk.totaal +
+        " mm (" +
+        r.pk.omschrijving +
+        ") · boven " +
+        r.pk.boven +
+        " · fundering " +
+        r.pk.fundering +
+        " · OGV " +
+        r.pk.ogv
+    );
+    lines.push(
+      "Fundering E: " +
+        r.e.fundOng +
+        (r.wapeningFund ? " → " + r.e.fundGew + " MPa (×" + r.e.fundFac + ")" : " MPa")
+    );
+    lines.push(
+      "OGV E: " +
+        r.e.ogvOng +
+        (r.wapeningOgv ? " → " + r.e.ogvGew + " MPa (×" + r.e.ogvFac + ")" : " MPa")
+    );
+    r.invoer.forEach(function (row) {
+      lines.push(row[0] + ": " + row[1]);
+    });
+    return lines.join("\n");
   }
 
   function inAppBrowser() {
@@ -3721,17 +3758,32 @@
     return /Telegram|FBAN|FBAV|Instagram|Line\/|wv\)/i.test(ua) || !!window.TelegramWebviewProxy;
   }
 
-  function pdfSafe(s) {
-    return String(s || "")
-      .replace(/[’‘]/g, "'")
-      .replace(/[–—]/g, "-")
-      .replace(/ë/g, "e")
-      .replace(/é/g, "e")
-      .replace(/ü/g, "u")
-      .replace(/ö/g, "o")
-      .replace(/ä/g, "a")
-      .replace(/×/g, "x")
-      .replace(/[^ -~]/g, " ");
+  function materiaalLabel(key) {
+    const m = materiaalMatch(key);
+    if (m) return m.label;
+    return materiaalKeuze[key] || "";
+  }
+
+  function fmtMm(n) {
+    return (Number(n) || 0) + " mm";
+  }
+
+  function fmtMpa(n) {
+    return (Number(n) || 0) + " MPa";
+  }
+
+  function mifRegel(meta, mif) {
+    if (!meta) return String(mif);
+    return (
+      String(mif) +
+      " · tabel " +
+      meta.tabel +
+      " (" +
+      meta.eOnderbouw +
+      " × " +
+      meta.eInfill +
+      " MPa)"
+    );
   }
 
   function parseRgb(css) {
@@ -3760,30 +3812,434 @@
       });
   }
 
-  function tableRowsForPdf() {
-    if (!tableEl) return [];
-    return Array.prototype.map.call(tableEl.querySelectorAll("tbody tr, tfoot tr"), function (tr) {
-      return Array.prototype.map.call(tr.querySelectorAll("th,td"), function (td) {
-        return td.innerText.replace(/\s+/g, " ").trim();
-      });
+  function collectReport() {
+    syncSheetFromInvoer();
+    normalizeMateriaalKeuzeAliases();
+    syncDruklaagFromFundering();
+    syncMifFromWapening();
+    invalidateCalcCache();
+    setTableOpen(true);
+    if (expertMode) {
+      renderExpertVisual();
+    } else {
+      renderVisual();
+      renderTable();
+      renderPakketSummary();
+    }
+
+    const p = PRESETS[sheet];
+    const f = fundMeta(wapeningFund);
+    const fundOng = calcAt(false, wapeningOgv);
+    const fundGew = calcAt(true, wapeningOgv);
+    const ogvOng = calcAt(wapeningFund, false);
+    const ogvGew = calcAt(wapeningFund, true);
+    const live = calcAt(wapeningFund, wapeningOgv);
+    const st = live.state;
+    const pk = pakketMeta();
+    const constructie = constructieBySheet(sheet);
+    const bovenL = bovenActieveLaag();
+    const fundType = wapeningTypeById(values.wapTypeFund);
+    const ogvType = wapeningTypeById(values.wapTypeOgv);
+    const layersGew = visualLayers(expertMode ? "expert-visual-gew" : "visual-gew");
+    const layersOng = visualLayers(expertMode ? "expert-visual-ong" : "visual-ong");
+
+    const tableRows = [
+      [
+        "Bovenconstructie · " + (bovenL ? bovenL.label : "—"),
+        fmtMm(bovenTopDikteSum()),
+        "—",
+        "—",
+        "—",
+        "—",
+      ],
+    ];
+    if (bovenStraatzandMm() > 0) {
+      tableRows.push(["  Straatzand", fmtMm(bovenStraatzandMm()), "—", "—", "—", "—"]);
+    }
+    tableRows.push([
+      "Onderconstructie",
+      onderconstructieOmschrijving() + " mm",
+      "—",
+      "—",
+      "—",
+      "—",
+    ]);
+    tableRows.push([
+      "  " + p.labels.fund,
+      f.basis + " + " + f.oh + " = " + f.dikteTotaal + " mm",
+      wapeningFund ? fmtMm(f.wapDikte) : "—",
+      fmtMpa(fundOng.output.D13),
+      fmtMpa(wapeningFund ? fundGew.output.E13 : fundOng.output.D13),
+      wapeningFund ? factor(fundOng.output.D13, fundGew.output.E13) + "×" : "—",
+    ]);
+    tableRows.push([
+      "  " + p.labels.ogv,
+      fmtMm(values.ogvDikte),
+      wapeningOgv ? fmtMm(values.wapOgv) : "—",
+      fmtMpa(ogvOng.output.D14),
+      fmtMpa(wapeningOgv ? ogvGew.output.E14 : ogvOng.output.D14),
+      wapeningOgv ? factor(ogvOng.output.D14, ogvGew.output.E14) + "×" : "—",
+    ]);
+    tableRows.push([
+      "Ondergrond",
+      "—",
+      "—",
+      fmtMpa(values.eOndergrond),
+      fmtMpa(values.eOndergrond),
+      "—",
+    ]);
+
+    const invoer = [
+      ["Project", projectNaam() || "—"],
+      ["Constructietype", constructiePrintLabel() + " · " + (constructie ? constructie.tab : sheet)],
+      ["Toplaag", bovenL ? bovenL.label + " · " + fmtMm(bovenLaagMm(bovenL)) : "geen"],
+    ];
+    if (bovenStraatzandMm() > 0) {
+      invoer.push(["Straatzand", fmtMm(bovenStraatzandMm())]);
+    }
+    invoer.push(["Bovenconstructie totaal", fmtMm(pk.boven) + " · vaste equivalente E " + BOVEN_E_EQUIVALENT + " MPa (geen Romfix)"]);
+    invoer.push(["Fundering nominaal", fmtMm(f.basis)]);
+    invoer.push(["Overhoogte", fmtMm(f.oh) + (f.oh > OVERHOOGTE_GEWAP_MAX ? " (gewapend max " + OVERHOOGTE_GEWAP_MAX + " mm)" : "")]);
+    invoer.push(["Fundering totaal", fmtMm(f.dikteTotaal)]);
+    invoer.push(["Vulmateriaal fundering", (materiaalLabel("eFundering") ? materiaalLabel("eFundering") + " · " : "") + fmtMpa(values.eFundering)]);
+    if (f.druklaagAan) {
+      invoer.push(["Licht fundering", fmtMm(f.lichtDikte) + " · " + fmtMpa(f.eLicht)]);
+      invoer.push(["Druklaag", fmtMm(f.drukBasis) + " · " + (materiaalKeuze.eDruklaag || "") + " · " + fmtMpa(f.eDruk)]);
+    }
+    invoer.push(["Fundering modus (F13)", isFunderingVast() ? "Vast — D13 = vulmateriaal E" : "Vrij — volledige Excel-keten"]);
+    invoer.push(["Wapening fundering", wapeningFund ? "Aan · " + (fundType ? wapeningOptionLabel(fundType) : "—") : "Uit"]);
+    if (wapeningFund) {
+      invoer.push(["Standaard hoogte wapening", fmtMm(f.standaardWap)]);
+      invoer.push(["Werkingsdikte fundering", fmtMm(f.wapDikte) + " (standaard + " + WAP_FUNDERING_WERKING_EXTRA + " mm, max laag)"]);
+      invoer.push(["SIF fundering (D19)", formatFactor(values.sifFundering) + " · " + SIF_NAME]);
+      invoer.push(["MIF fundering (E19)", mifRegel(mifLookupMeta.fund, values.mifFundering)]);
+    }
+    invoer.push([p.labels.ogv, fmtMm(values.ogvDikte)]);
+    invoer.push(["Vulmateriaal OGV", (materiaalLabel("eOgv") ? materiaalLabel("eOgv") + " · " : "") + fmtMpa(values.eOgv)]);
+    invoer.push(["Wapening OGV", wapeningOgv ? "Aan · " + (ogvType ? wapeningOptionLabel(ogvType) : "—") : "Uit"]);
+    if (wapeningOgv) {
+      invoer.push(["Werkingsdikte OGV", fmtMm(values.wapOgv)]);
+      invoer.push(["SIF OGV (D20)", formatFactor(values.sifOgv) + " · " + SIF_NAME]);
+      invoer.push(["MIF OGV (E20)", mifRegel(mifLookupMeta.ogv, values.mifOgv)]);
+    }
+    invoer.push(["Ondergrond", (materiaalLabel("eOndergrond") ? materiaalLabel("eOndergrond") + " · " : "") + fmtMpa(values.eOndergrond)]);
+    invoer.push(["Pakketdikte", pk.totaal + " mm (" + pk.omschrijving + ")"]);
+
+    const excel = [
+      ["B12 boven", fmtMm(st.B12)],
+      ["B13 fundering", fmtMm(st.B13)],
+      ["B14 " + p.labels.ogv, fmtMm(st.B14)],
+      ["C19 totaal onderbouw", fmtMm(live.output.C19)],
+      ["C20 totaal + boven", fmtMm(live.output.C20)],
+      ["C13 fundering E", fmtMpa(st.C13)],
+      ["C14 OGV E", fmtMpa(st.C14)],
+      ["C15 ondergrond E", fmtMpa(st.C31)],
+      ["B19 fund. wapening", fmtMm(st.B19)],
+      ["B20 OGV wapening", fmtMm(st.B20)],
+      ["B25 ongew. fundering", Math.round(st.B25) + " mm"],
+      ["B26 gewap. fundering", Math.round(st.B26) + " mm"],
+      ["B27 ongew. onder", Math.round(st.B27) + " mm"],
+      ["D13 zonder wapening", fmtMpa(fundOng.output.D13)],
+      ["E13 met wapening", fmtMpa(fundGew.output.E13)],
+      ["E25 gewap. keten", fmtMpa(Math.round(st.E25))],
+      ["C26 gewap. zone", fmtMpa(Math.round(st.C26))],
+      ["D46 ongew. onder", fmtMpa(Math.round(st.D46))],
+      ["E46 ongew. boven", fmtMpa(Math.round(st.E46))],
+      ["F46 Austroads", fmtMpa(Math.round(st.F46))],
+      ["D54 Thenn", fmtMpa(Math.round(st.D54))],
+      ["F67 Palmer", (Math.round(st.F67 * 1000) / 1000).toFixed(3)],
+      ["D14 zonder wapening", fmtMpa(ogvOng.output.D14)],
+      ["E14 met wapening", fmtMpa(ogvGew.output.E14)],
+    ];
+
+    return {
+      title: projectNaam() ? "Romfix — " + projectNaam() : "Romfix sterkteberekening",
+      project: projectNaam(),
+      date: new Date().toLocaleString("nl-NL"),
+      version: "2.3",
+      sheetTab: constructie ? constructie.tab : sheet,
+      constructieLabel: constructie ? constructie.label : "",
+      pk: pk,
+      f: f,
+      wapeningFund: wapeningFund,
+      wapeningOgv: wapeningOgv,
+      e: {
+        fundOng: fundOng.output.D13,
+        fundGew: fundGew.output.E13,
+        fundFac: wapeningFund ? factor(fundOng.output.D13, fundGew.output.E13) : "—",
+        ogvOng: ogvOng.output.D14,
+        ogvGew: ogvGew.output.E14,
+        ogvFac: wapeningOgv ? factor(ogvOng.output.D14, ogvGew.output.E14) : "—",
+        colGew: profielConstructieMpaText(wapeningFund, wapeningOgv),
+        colOng: profielConstructieMpaText(false, false),
+      },
+      tableRows: tableRows,
+      invoer: invoer,
+      excel: excel,
+      layersGew: layersGew,
+      layersOng: layersOng,
+      share: shareUrl(),
+      disclaimer:
+        "Indicatieve berekening volgens Romfix-werkboek v2.3 (Palmer-Barber, Austroads, Thenn + MIF-tabellen). Geen bindende projectberekening. Controleer met ontwerp, verkeersklasse en sondering.",
+    };
+  }
+
+  function htmlEscape(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function htmlTable(headers, rows, kv) {
+    let h = "<table><thead><tr>";
+    headers.forEach(function (c, i) {
+      h += "<th" + (i && !kv ? ' class="num"' : "") + ">" + htmlEscape(c) + "</th>";
     });
+    h += "</tr></thead><tbody>";
+    rows.forEach(function (row) {
+      h += "<tr>";
+      row.forEach(function (c, i) {
+        const cls = kv ? (i === 0 ? " scope='row'" : "") : i ? ' class="num"' : "";
+        if (kv && i === 0) h += "<th class='print-kv-th'>" + htmlEscape(c) + "</th>";
+        else h += "<td" + (i && !kv ? ' class="num"' : "") + ">" + htmlEscape(c) + "</td>";
+      });
+      h += "</tr>";
+    });
+    return h + "</tbody></table>";
+  }
+
+  function cloneVisualsHtml() {
+    const src =
+      document.querySelector("#standard-view .visual-compare") ||
+      document.querySelector("#expert-dashboard .visual-compare");
+    if (!src) return "";
+    const node = src.cloneNode(true);
+    node.querySelectorAll("[id]").forEach(function (el) {
+      el.removeAttribute("id");
+    });
+    return '<div class="print-visuals">' + node.outerHTML + "</div>";
+  }
+
+  function buildPrintReport() {
+    const r = collectReport();
+    const el = document.getElementById("print-report");
+    if (!el) return r;
+    el.hidden = false;
+    el.innerHTML =
+      "<h1>" +
+      htmlEscape(r.title) +
+      "</h1>" +
+      '<p class="print-meta">Romfix B.V. · werkboek v' +
+      r.version +
+      " · " +
+      htmlEscape(r.sheetTab) +
+      " · " +
+      htmlEscape(r.date) +
+      "</p>" +
+      '<div class="print-kpis">' +
+      '<div class="print-kpi">Pakket<strong>' +
+      r.pk.totaal +
+      " mm</strong>" +
+      r.pk.omschrijving +
+      "</div>" +
+      '<div class="print-kpi">Fundering E<strong>' +
+      r.e.fundOng +
+      (r.wapeningFund ? " → " + r.e.fundGew : "") +
+      " MPa</strong>" +
+      (r.wapeningFund ? "factor " + r.e.fundFac + "×" : "wapening uit") +
+      "</div>" +
+      '<div class="print-kpi">OGV E<strong>' +
+      r.e.ogvOng +
+      (r.wapeningOgv ? " → " + r.e.ogvGew : "") +
+      " MPa</strong>" +
+      (r.wapeningOgv ? "factor " + r.e.ogvFac + "×" : "wapening uit") +
+      "</div></div>" +
+      "<h2>Profiel gewapend vs ongewapend</h2>" +
+      cloneVisualsHtml() +
+      "<h2>Stijfheidstabel</h2>" +
+      htmlTable(["Laag", "Dikte", "Wapening", "Zonder wapening", "Met wapening", "Factor"], r.tableRows) +
+      "<h2>Invoer (volledig)</h2>" +
+      htmlTable(["Parameter", "Waarde"], r.invoer, true) +
+      "<h2>Rekenkern (Excel-cellen)</h2>" +
+      htmlTable(["Cel / stap", "Waarde"], r.excel, true) +
+      "<h2>Toelichting</h2>" +
+      '<p class="print-note">' +
+      htmlEscape(r.disclaimer) +
+      "</p>" +
+      '<p class="print-url">Deellink: ' +
+      htmlEscape(r.share) +
+      "</p>";
+    return r;
+  }
+
+  function pdfEncode(s) {
+    const map = {
+      "€": 128,
+      "‚": 130,
+      "ƒ": 131,
+      "„": 132,
+      "…": 133,
+      "†": 134,
+      "‡": 135,
+      "ˆ": 136,
+      "‰": 137,
+      "Š": 138,
+      "‹": 139,
+      "Œ": 140,
+      "Ž": 142,
+      "‘": 145,
+      "’": 146,
+      "“": 147,
+      "”": 148,
+      "•": 149,
+      "–": 150,
+      "—": 151,
+      "˜": 152,
+      "™": 153,
+      "š": 154,
+      "›": 155,
+      "œ": 156,
+      "ž": 158,
+      "Ÿ": 159,
+      À: 192,
+      Á: 193,
+      Â: 194,
+      Ã: 195,
+      Ä: 196,
+      Å: 197,
+      Æ: 198,
+      Ç: 199,
+      È: 200,
+      É: 201,
+      Ê: 202,
+      Ë: 203,
+      Ì: 204,
+      Í: 205,
+      Î: 206,
+      Ï: 207,
+      Ñ: 209,
+      Ò: 210,
+      Ó: 211,
+      Ô: 212,
+      Õ: 213,
+      Ö: 214,
+      "×": 215,
+      Ø: 216,
+      Ù: 217,
+      Ú: 218,
+      Û: 219,
+      Ü: 220,
+      Ý: 221,
+      ß: 223,
+      à: 224,
+      á: 225,
+      â: 226,
+      ã: 227,
+      ä: 228,
+      å: 229,
+      æ: 230,
+      ç: 231,
+      è: 232,
+      é: 233,
+      ê: 234,
+      ë: 235,
+      ì: 236,
+      í: 237,
+      î: 238,
+      ï: 239,
+      ñ: 241,
+      ò: 242,
+      ó: 243,
+      ô: 244,
+      õ: 245,
+      ö: 246,
+      "÷": 247,
+      ø: 248,
+      ù: 249,
+      ú: 250,
+      û: 251,
+      ü: 252,
+      ý: 253,
+      ÿ: 255,
+    };
+    let out = "";
+    const str = String(s == null ? "" : s);
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charAt(i);
+      let code = ch.charCodeAt(0);
+      if (map[ch] != null) code = map[ch];
+      else if (code === 160) code = 32;
+      else if (code < 32 || (code > 126 && code < 128) || code > 255) code = 32;
+      if (code === 40 || code === 41 || code === 92) out += "\\" + String.fromCharCode(code);
+      else if (code < 32 || code > 126) out += "\\" + code.toString(8).padStart(3, "0");
+      else out += String.fromCharCode(code);
+    }
+    return out;
+  }
+
+  function pdfTextWidth(s, size, bold) {
+    return String(s || "").length * size * (bold ? 0.58 : 0.5);
+  }
+
+  function pdfWrap(s, size, maxW, bold) {
+    const words = String(s || "").split(/\s+/);
+    const lines = [];
+    let cur = "";
+    words.forEach(function (w) {
+      const t = cur ? cur + " " + w : w;
+      if (pdfTextWidth(t, size, bold) <= maxW) cur = t;
+      else {
+        if (cur) lines.push(cur);
+        if (pdfTextWidth(w, size, bold) <= maxW) cur = w;
+        else {
+          let chunk = "";
+          for (let i = 0; i < w.length; i++) {
+            const n = chunk + w.charAt(i);
+            if (pdfTextWidth(n, size, bold) <= maxW) chunk = n;
+            else {
+              if (chunk) lines.push(chunk);
+              chunk = w.charAt(i);
+            }
+          }
+          cur = chunk;
+        }
+      }
+    });
+    if (cur) lines.push(cur);
+    return lines.length ? lines : [""];
   }
 
   function buildPdfBlob() {
-    const title = projectNaam() ? "Romfix - " + projectNaam() : "Romfix sterkteberekening";
-    const date = new Date().toLocaleString("nl-NL");
-    const pk = pakketMeta();
-    const left = visualLayers("visual-gew");
-    const right = visualLayers("visual-ong");
-    const rows = tableRowsForPdf();
+    const r = collectReport();
     const pageW = 595;
     const pageH = 842;
-    const ops = [];
+    const margin = 40;
+    const contentW = pageW - margin * 2;
+    const pages = [];
+    let ops = [];
+    let y = pageH - 36;
 
-    function esc(s) {
-      return pdfSafe(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+    function flushPage() {
+      if (ops.length) pages.push(ops);
+      ops = [];
+      y = pageH - 36;
     }
-    function text(x, y, size, s, bold) {
+    function ensure(h) {
+      if (y - h < 42) flushPage();
+    }
+    function rgb(rr, g, b) {
+      return rr.toFixed(3) + " " + g.toFixed(3) + " " + b.toFixed(3);
+    }
+    function fillRect(x, yy, w, h, color) {
+      ops.push(color + " rg " + x.toFixed(1) + " " + yy.toFixed(1) + " " + w.toFixed(1) + " " + h.toFixed(1) + " re f");
+    }
+    function strokeRect(x, yy, w, h, color) {
+      ops.push(color + " RG 0.4 w " + x.toFixed(1) + " " + yy.toFixed(1) + " " + w.toFixed(1) + " " + h.toFixed(1) + " re S");
+    }
+    function textAt(x, yy, size, s, bold, color) {
+      ops.push((color || "0 0 0") + " rg");
       ops.push(
         "BT /" +
           (bold ? "F2" : "F1") +
@@ -3792,83 +4248,184 @@
           " Tf 1 0 0 1 " +
           x.toFixed(1) +
           " " +
-          y.toFixed(1) +
+          yy.toFixed(1) +
           " Tm (" +
-          esc(s) +
+          pdfEncode(s) +
           ") Tj ET"
       );
     }
-    function rect(x, y, w, h, rgb) {
-      ops.push(
-        rgb[0].toFixed(3) +
-          " " +
-          rgb[1].toFixed(3) +
-          " " +
-          rgb[2].toFixed(3) +
-          " rg " +
-          x.toFixed(1) +
-          " " +
-          y.toFixed(1) +
-          " " +
-          w.toFixed(1) +
-          " " +
-          h.toFixed(1) +
-          " re f"
-      );
+    function heading(s) {
+      ensure(28);
+      y -= 18;
+      fillRect(margin, y - 2, 42, 3, rgb(0.471, 0.714, 0));
+      textAt(margin + 50, y, 12, s, true, rgb(0.106, 0.165, 0.29));
+      y -= 10;
     }
-
-    text(40, 800, 16, title, true);
-    text(40, 782, 9, "Indicatief - " + date, false);
-    text(
-      40,
-      766,
-      10,
-      "Pakket " + pk.totaal + " mm  |  boven " + pk.boven + "  fundering " + pk.fundering + "  OGV " + pk.ogv,
-      false
-    );
-
-    function drawCol(layers, x, label) {
-      text(x, 744, 11, label, true);
-      const totalMm = layers.reduce(function (s, L) {
-        return s + (L.mm || 0);
-      }, 0) || 1;
-      const maxH = 280;
-      let y = 728;
-      layers.forEach(function (L) {
-        const h = Math.max(14, (L.mm / totalMm) * maxH);
-        y -= h;
-        rect(x, y, 240, h - 1.5, L.rgb);
-        const dark = L.rgb[0] + L.rgb[1] + L.rgb[2] < 1.4;
-        ops.push(dark ? "1 1 1 rg" : "0.12 0.16 0.23 rg");
-        text(x + 6, y + Math.max(4, h / 2 - 4), 8, (L.name + "  " + L.vals).slice(0, 42), false);
+    function para(s, size) {
+      const sz = size || 8.5;
+      const lines = pdfWrap(s, sz, contentW, false);
+      lines.forEach(function (ln) {
+        ensure(12);
+        y -= 11;
+        textAt(margin, y, sz, ln, false);
       });
     }
-    drawCol(left, 40, "Gewapend");
-    drawCol(right, 310, "Ongewapend");
+    function drawTable(headers, rows, colW, opts) {
+      const o = opts || {};
+      const headerH = 16;
+      const pad = 4;
+      const sz = o.size || 8;
+      function rowHeight(cells, bold) {
+        let h = 14;
+        cells.forEach(function (c, i) {
+          const lines = pdfWrap(String(c), sz, colW[i] - pad * 2, bold);
+          h = Math.max(h, lines.length * 10 + 6);
+        });
+        return h;
+      }
+      ensure(headerH + 8);
+      let x = margin;
+      fillRect(margin, y - headerH, contentW, headerH, rgb(0.106, 0.165, 0.29));
+      headers.forEach(function (h, i) {
+        textAt(x + pad, y - headerH + 5, sz, h, true, "1 1 1");
+        x += colW[i];
+      });
+      y -= headerH;
+      rows.forEach(function (row, ri) {
+        const rh = rowHeight(row, false);
+        ensure(rh + 2);
+        if (o.kv && ri % 2 === 0) fillRect(margin, y - rh, contentW, rh, rgb(0.953, 0.961, 0.973));
+        let xx = margin;
+        row.forEach(function (c, i) {
+          strokeRect(xx, y - rh, colW[i], rh, rgb(0.773, 0.804, 0.847));
+          const lines = pdfWrap(String(c), sz, colW[i] - pad * 2, o.kv && i === 0);
+          let ty = y - 11;
+          lines.forEach(function (ln) {
+            textAt(xx + pad, ty, sz, ln, !!(o.kv && i === 0), rgb(0.12, 0.16, 0.23));
+            ty -= 10;
+          });
+          xx += colW[i];
+        });
+        y -= rh;
+      });
+      y -= 6;
+    }
+    function drawStack(layers, x, label, sub) {
+      textAt(x, y, 10, label, true, rgb(0.106, 0.165, 0.29));
+      textAt(x, y - 12, 8, sub, false, rgb(0.3, 0.35, 0.4));
+      const totalMm =
+        layers.reduce(function (s, L) {
+          return s + (L.mm || 0);
+        }, 0) || 1;
+      const maxH = 250;
+      let yy = y - 18;
+      layers.forEach(function (L) {
+        const h = Math.max(16, (L.mm / totalMm) * maxH);
+        yy -= h;
+        const col = L.rgb || [0.47, 0.71, 0];
+        fillRect(x, yy, 248, h - 1.2, rgb(col[0], col[1], col[2]));
+        const dark = col[0] + col[1] + col[2] < 1.45;
+        const ink = dark ? "1 1 1" : rgb(0.12, 0.16, 0.23);
+        const nameLines = pdfWrap((L.name || "") + (L.vals ? "  " + L.vals : ""), 8, 236, false);
+        textAt(x + 6, yy + Math.max(4, h / 2 - 4), 8, nameLines[0], false, ink);
+      });
+    }
 
-    let ty = 420;
-    text(40, ty, 11, "Stijfheidstabel", true);
-    ty -= 16;
-    rows.forEach(function (row) {
-      if (ty < 50) return;
-      text(40, ty, 8, row.join("  |  ").slice(0, 110), false);
-      ty -= 12;
+    fillRect(0, pageH - 28, pageW, 28, rgb(0.106, 0.165, 0.29));
+    textAt(margin, pageH - 19, 11, "Romfix sterkteberekening", true, "1 1 1");
+    textAt(pageW - margin - 90, pageH - 19, 9, "v" + r.version + "  indicatief", false, "1 1 1");
+    y = pageH - 48;
+    textAt(margin, y, 16, r.title, true, rgb(0.106, 0.165, 0.29));
+    y -= 14;
+    para(r.sheetTab + "  ·  " + r.date, 9);
+    y -= 6;
+
+    const kpiH = 36;
+    ensure(kpiH + 8);
+    const kpis = [
+      ["Pakket", r.pk.totaal + " mm", r.pk.omschrijving],
+      [
+        "Fundering E",
+        r.e.fundOng + (r.wapeningFund ? " → " + r.e.fundGew : "") + " MPa",
+        r.wapeningFund ? "factor " + r.e.fundFac + "×" : "wapening uit",
+      ],
+      [
+        "OGV E",
+        r.e.ogvOng + (r.wapeningOgv ? " → " + r.e.ogvGew : "") + " MPa",
+        r.wapeningOgv ? "factor " + r.e.ogvFac + "×" : "wapening uit",
+      ],
+    ];
+    kpis.forEach(function (k, i) {
+      const x = margin + i * 172;
+      strokeRect(x, y - kpiH, 164, kpiH, rgb(0.773, 0.804, 0.847));
+      textAt(x + 6, y - 12, 7.5, k[0], false, rgb(0.4, 0.45, 0.5));
+      textAt(x + 6, y - 24, 10, k[1], true, rgb(0.106, 0.165, 0.29));
+      textAt(x + 6, y - 34, 7, k[2], false, rgb(0.3, 0.35, 0.4));
     });
-    text(40, 36, 8, "Romfix B.V. - geen bindende projectberekening", false);
+    y -= kpiH + 10;
 
-    const stream = ops.join("\n");
+    heading("Profiel gewapend vs ongewapend");
+    const stackTop = y;
+    const leftH =
+      20 +
+      Math.max(
+        80,
+        r.layersGew.reduce(function (s, L) {
+          return s + Math.max(16, 1);
+        }, 0)
+      );
+    ensure(270);
+    drawStack(r.layersGew, margin, "Gewapend", r.e.colGew);
+    drawStack(r.layersOng, margin + 275, "Ongewapend", r.e.colOng);
+    y = stackTop - 270;
+
+    heading("Stijfheidstabel");
+    drawTable(
+      ["Laag", "Dikte", "Wapening", "Zonder", "Met", "Factor"],
+      r.tableRows,
+      [155, 95, 70, 70, 70, 55]
+    );
+
+    heading("Invoer (volledig)");
+    drawTable(["Parameter", "Waarde"], r.invoer, [190, 325], { kv: true });
+
+    heading("Rekenkern (Excel-cellen)");
+    drawTable(["Cel / stap", "Waarde"], r.excel, [220, 295], { kv: true });
+
+    heading("Toelichting");
+    para(r.disclaimer, 8);
+    y -= 4;
+    para("Deellink: " + r.share, 7.5);
+    y -= 8;
+    textAt(margin, 28, 8, "Romfix B.V. · www.romfix.nl · geen bindende projectberekening", false, rgb(0.4, 0.45, 0.5));
+
+    flushPage();
+
     const objects = [
       "<< /Type /Catalog /Pages 2 0 R >>",
-      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " +
-        pageW +
-        " " +
-        pageH +
-        "] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>",
-      "<< /Length " + stream.length + " >>\nstream\n" + stream + "\nendstream",
-      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+      "PAGES",
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
     ];
+    const kids = [];
+    pages.forEach(function (pageOps) {
+      const stream = pageOps.join("\n");
+      objects.push("<< /Length " + stream.length + " >>\nstream\n" + stream + "\nendstream");
+      const contentId = objects.length;
+      objects.push(
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " +
+          pageW +
+          " " +
+          pageH +
+          "] /Contents " +
+          contentId +
+          " 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> >>"
+      );
+      kids.push(objects.length + " 0 R");
+    });
+    objects[1] =
+      "<< /Type /Pages /Kids [" + kids.join(" ") + "] /Count " + kids.length + " >>";
+
     let pdf = "%PDF-1.4\n";
     const offsets = [0];
     objects.forEach(function (body, i) {
@@ -3925,26 +4482,55 @@
       window.open(url, "_blank");
     } catch (_) {}
     setShareStatus("PDF klaar. Werkt de download niet? Tik op ‘Tik hier om de PDF te openen’.");
+    return url;
   }
 
   function makePdf() {
-    setTableOpen(true);
-    renderVisual();
+    buildPrintReport();
     const blob = buildPdfBlob();
     offerPdf(blob, safeFilename());
     return blob;
   }
 
+  function printBlob(blob) {
+    const url = URL.createObjectURL(blob);
+    const fallback = document.getElementById("pdf-fallback");
+    const link = document.getElementById("pdf-fallback-link");
+    if (link) {
+      if (link.dataset.prev) URL.revokeObjectURL(link.dataset.prev);
+      link.href = url;
+      link.setAttribute("download", safeFilename());
+      link.dataset.prev = url;
+    }
+    if (fallback) fallback.hidden = false;
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("title", "Romfix PDF");
+    iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    iframe.onload = function () {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch (_) {
+        window.open(url, "_blank");
+      }
+    };
+    setShareStatus("Printvenster geopend. Kies ‘Opslaan als PDF’ voor een kopie.");
+  }
+
   function printPdf() {
-    if (inAppBrowser() || /Mobi|Android|iPhone/i.test(navigator.userAgent || "")) {
-      makePdf();
+    buildPrintReport();
+    const mobile = inAppBrowser() || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || "");
+    if (mobile) {
+      offerPdf(buildPdfBlob(), safeFilename());
       return;
     }
     document.body.classList.add("printing");
     window.print();
     setTimeout(function () {
       document.body.classList.remove("printing");
-    }, 500);
+    }, 800);
   }
 
   function downloadPdf() {
@@ -3967,9 +4553,10 @@
   }
 
   function mailResult() {
-    const titel = projectNaam() ? "Romfix - " + projectNaam() : "Romfix-berekening";
-    const url = shareUrl();
-    const body = (titel + "\n\n" + url + "\n\n" + resultText()).slice(0, 1600);
+    const r = collectReport();
+    const titel = r.title;
+    const url = r.share;
+    const body = (titel + "\n\n" + url + "\n\n" + resultText()).slice(0, 1800);
     try {
       makePdf();
     } catch (_) {}
@@ -4013,6 +4600,14 @@
     if (mailBtn) mailBtn.addEventListener("click", mailResult);
     if (shareBtn) shareBtn.addEventListener("click", copyShareLink);
   }
+
+  window.RomfixExport = {
+    printPdf: printPdf,
+    downloadPdf: downloadPdf,
+    buildPdfBlob: buildPdfBlob,
+    buildPrintReport: buildPrintReport,
+    collectReport: collectReport,
+  };
 
   loadPreset("roadbase");
   restoreFromUrl();
