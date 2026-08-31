@@ -2346,7 +2346,7 @@
           segmentBtn(
             "fund-licht",
             "licht",
-            fundOn ? lichtLabel + " · SIF 10" : lichtLabel,
+            lichtLabel,
             f.lichtDikte,
             lichtEq,
             f.lichtDikte
@@ -2752,10 +2752,7 @@
         },
         {
           id: "fund-licht",
-          laag:
-            "↳ ↳ " +
-            ((lichtMat && lichtMat.label) || "Licht") +
-            " · SIF 10",
+          laag: "↳ ↳ " + ((lichtMat && lichtMat.label) || "Licht"),
           dikte: String(f.lichtDikte),
           wapMm: wapeningFund ? "SIF 10" : "—",
           ong: fundOng.state.C27 || f.eLicht,
@@ -4062,14 +4059,9 @@
       htmlTable(["Laag", "Dikte", "Wapening", "Zonder wapening", "Met wapening", "Factor"], r.tableRows) +
       "<h2>Invoer (volledig)</h2>" +
       htmlTable(["Parameter", "Waarde"], r.invoer, true) +
-      "<h2>Rekenkern (Excel-cellen)</h2>" +
-      htmlTable(["Cel / stap", "Waarde"], r.excel, true) +
       "<h2>Toelichting</h2>" +
       '<p class="print-note">' +
       htmlEscape(r.disclaimer) +
-      "</p>" +
-      '<p class="print-url">Deellink: ' +
-      htmlEscape(r.share) +
       "</p>";
     return r;
   }
@@ -4389,13 +4381,8 @@
     heading("Invoer (volledig)");
     drawTable(["Parameter", "Waarde"], r.invoer, [190, 325], { kv: true });
 
-    heading("Rekenkern (Excel-cellen)");
-    drawTable(["Cel / stap", "Waarde"], r.excel, [220, 295], { kv: true });
-
     heading("Toelichting");
     para(r.disclaimer, 8);
-    y -= 4;
-    para("Deellink: " + r.share, 7.5);
     y -= 8;
     textAt(margin, 28, 8, "Romfix B.V. · www.romfix.nl · geen bindende projectberekening", false, rgb(0.4, 0.45, 0.5));
 
