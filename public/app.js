@@ -1,9 +1,12 @@
 (function () {
-  const OVERHOOGTE_GEWAP_MAX = 150;
-  /** Standaard producthoogte funderingswapening (mm) */
+  /** Oude producthoogtes in deellinks (100/150/200) → werkingsdikte + extra. */
   const WAP_FUNDERING_KEUZES = [100, 150, 200];
-  /** Werkingsdikte = standaardhoogte + dit bedrag */
+  /** Werkingsdikte = oude producthoogte + dit bedrag (MIF bepaald over 300 mm). */
   const WAP_FUNDERING_WERKING_EXTRA = 150;
+  const WAP_FUNDERING_WERKING_DEFAULT = 300;
+  /** Fysieke R'Cel-producthoogte (los van werkingsdikte 300 mm). */
+  const RCEL_HOOGTE_KEUZES = [100, 150, 200];
+  const RCEL_HOOGTE_DEFAULT = 150;
 
   /** Support Improvement Factor / Modules Improvement Factor (Romfix-terminologie). */
   const SIF_NAME = "Support Improvement Factor";
@@ -14,6 +17,7 @@
    * SIF vast per type (Chris/Excel: 5,0 · 7,6 · 10,0) → D19/D20.
    */
   const WAPENING_TYPES = [
+    { id: "none", label: "Geen wapening", product: "geen", sif: 0 },
     { id: "grid_only", label: "Alleen geogrid", product: "E'Grid", sif: 5.0 },
     { id: "cell_only", label: "Alleen geocel", product: "R'Cel", sif: 7.6 },
     { id: "grid_cell", label: "Geogrid + geocel", product: "E'Grid + R'Cel", sif: 10.0 },
@@ -49,7 +53,7 @@
       eFundering: 150,
       eOgv: 150,
       eOndergrond: 11,
-      wapFundering: 150,
+      wapFundering: 300,
       wapOgv: 300,
       sifFundering: 10,
       sifOgv: 10,
@@ -65,8 +69,8 @@
       eFundering: 150,
       eOgv: 150,
       eOndergrond: 105,
-      wapFundering: 150,
-      wapOgv: 250,
+      wapFundering: 300,
+      wapOgv: 300,
       sifFundering: 10,
       sifOgv: 10,
       mifFundering: 4.3,
@@ -76,29 +80,59 @@
     },
   };
 
-  const MATERIAAL_LAAG = [
-    { label: "Menggranulaat", mpa: 400 },
-    { label: "Hydraulisch menggranulaat", mpa: 600 },
-    { label: "Metselwerkpuin", mpa: 150 },
-    { label: "Steenslag/steenmengsels", mpa: 150 },
-    { label: "BIMS", mpa: 125 },
-    { label: "Schuimglas", mpa: 50 },
+  const MATERIAAL_LAAG_KERN = [
+    { label: "Menggranulaat", mpa: 400, bindend: true, kgM3: 1900 },
+    { label: "Hydraulisch menggranulaat", mpa: 600, bindend: true, kgM3: 2000 },
+    { label: "Metselwerkpuin", mpa: 150, bindend: false, kgM3: 1600 },
+    { label: "Steenslag/steenmengsels", mpa: 150, bindend: false, kgM3: 1800 },
+    /**
+     * CROW: puimsteen = bims. Geen ontwerp-E in de funderingstabel (die 150 is steenslag/lava).
+     * E_dyn 150–300 MPa (ophoogrichtlijn). Zandboek: E_dyn ≈ 2–2,5 × E_stat, dus statisch vanaf 60.
+     * Dichtheid in het werk verdicht 850–1.150 kg/m³; hier de onderkant.
+     */
+    { label: "Puimsteen", mpa: 60, bindend: false, kgM3: 850 },
+    { label: "Schuimglas", mpa: 50, bindend: false, kgM3: 200 },
   ];
+  /** CROW: ontwerpstijfheid 600 MPa, verdicht in het werk ca. 2.000 kg/m³. Zelfbindend, net als menggranulaat. */
+  const MATERIAAL_BETONGRANULAAT = {
+    label: "Betongranulaat",
+    mpa: 600,
+    bindend: true,
+    kgM3: 2000,
+  };
+  /**
+   * CROW dunne asfaltverhardingen, tabel 31: Argex stijfheid 10–30 MPa,
+   * droge volumieke massa 470–650 kg/m³. De slider begint bij 30 MPa.
+   * Niet in MATERIAAL_LAAG_KERN: die volgorde zit in deel-links van ondergrond en verbetering.
+   */
+  const MATERIAAL_ARGEX = {
+    label: "Argex",
+    mpa: 30,
+    bindend: false,
+    kgM3: 550,
+  };
+  const MATERIAAL_LAAG = MATERIAAL_LAAG_KERN.concat([MATERIAAL_BETONGRANULAAT, MATERIAAL_ARGEX]);
 
   const MATERIAAL_ONDERGROND = [
-    { label: "Zand", mpa: 100 },
-    { label: "Goed gegradeerd zand", mpa: 120 },
-    { label: "Vaste klei", mpa: 50 },
-    { label: "Veen/slappe klei", mpa: 30 },
+    { label: "Zand", mpa: 100, kgM3: 1700 },
+    { label: "Goed gegradeerd zand", mpa: 120, kgM3: 1900 },
+    { label: "Vaste klei", mpa: 50, kgM3: 1800 },
+    { label: "Veen/slappe klei", mpa: 30, kgM3: 1450 },
   ];
+  /** Referentie voor gewichtcompensatie: het pakket alsof het slappe klei is. */
+  const REFERENTIE_KLEI_KG_M3 = 1450;
 
-  const MATERIAAL_ALLE = MATERIAAL_LAAG.concat(MATERIAAL_ONDERGROND);
+  /** Betongranulaat achteraan, zodat oude deel-indices van ondergrond blijven kloppen. */
+  const MATERIAAL_ALLE = MATERIAAL_LAAG_KERN.concat(MATERIAAL_ONDERGROND, [MATERIAAL_BETONGRANULAAT]);
 
-  /** BIMS / schuimglas vereisen een dragende druklaag erboven (Thenn + wapening). */
-  const LICHT_FUNDERING_LABELS = ["BIMS", "Schuimglas"];
+  /** Puimsteen, schuimglas en Argex vereisen een dragende druklaag erboven. */
+  const LICHT_FUNDERING_LABELS = ["Puimsteen", "Schuimglas", "Argex"];
   const DRUKLAAG_DEFAULT_MM = 150;
   const DRUKLAAG_MIN_MM = 80;
+  const DRUKLAAG_MAX_MM = 400;
   const LICHT_MIN_MM = 50;
+  const LICHT_MAX_MM = 1000;
+  const FUNDERING_BASIS_MAX_MM = LICHT_MAX_MM + DRUKLAAG_MAX_MM;
   const MATERIAAL_DRUKLAAG = MATERIAAL_LAAG.filter(function (m) {
     return LICHT_FUNDERING_LABELS.indexOf(m.label) < 0;
   });
@@ -109,9 +143,10 @@
     {
       id: "klinkers",
       dikteKey: "bovenKlinkers",
-      label: "Klinkers",
+      label: "Bestrating",
       note: "ca. 5 cm",
       defaultMm: 50,
+      kgM3: 2200,
       min: 0,
       max: 100,
       step: 5,
@@ -121,11 +156,12 @@
       id: "asfalt",
       dikteKey: "bovenAsfalt",
       label: "Asfalt",
-      note: "max 18 cm",
+      note: "3 lagen",
       defaultMm: 180,
+      kgM3: 2300,
       min: 0,
-      max: 180,
-      step: 10,
+      max: 380,
+      step: 5,
       cls: "asfalt",
     },
     {
@@ -134,6 +170,7 @@
       label: "Beton",
       note: "20–25 cm",
       defaultMm: 225,
+      kgM3: 2400,
       min: 200,
       max: 250,
       step: 5,
@@ -141,22 +178,36 @@
     },
   ];
 
-  /** Onder klinkers — telt mee in bovenconstructie */
+  /** Asfalt: drie lagen, elk apart. bovenAsfalt blijft de som (oude links en B12). */
+  const ASFALT_LAGEN = [
+    { key: "bovenAsfaltDek", label: "Deklaag", cls: "asfalt-dek", defaultMm: 40, min: 0, max: 80, step: 5, kgM3: 2300 },
+    { key: "bovenAsfaltTussen", label: "Tussenlaag", cls: "asfalt-tussen", defaultMm: 50, min: 0, max: 100, step: 5, kgM3: 2300 },
+    { key: "bovenAsfaltOnder", label: "Onderlaag", cls: "asfalt-onder", defaultMm: 90, min: 0, max: 200, step: 5, kgM3: 2300 },
+  ];
+
+  /** Onder bestrating — telt mee in bovenconstructie. Diktekey blijft bovenStraatzand (deellinks). */
   const BOVEN_STRAATZAND = {
     dikteKey: "bovenStraatzand",
     label: "Straatzand",
-    note: "onder klinkers, max 20 cm",
+    note: "onder bestrating, max 20 cm",
     defaultMm: 40,
     min: 0,
     max: 200,
     step: 10,
   };
 
+  const BOVEN_BEDDING = [
+    { id: "straatzand", label: "Straatzand", cls: "straatzand", kgM3: 1700 },
+    { id: "drainagemortel", label: "Drainagemortel", cls: "drainagemortel", kgM3: 1800 },
+    { id: "split", label: "Split", cls: "split", kgM3: 1600 },
+  ];
+  const BOVEN_BEDDING_DEFAULT = "straatzand";
+
   const LAYERS = [
     {
       id: "boven",
       label: "Bovenconstructie",
-      hint: "Kies één toplaag (klinkers, asfalt of beton). Bij klinkers: straatzand eronder — samen bovenconstructie.",
+      hint: "Kies één toplaag (bestrating, asfalt of beton). Bij bestrating: straatzand, drainagemortel of split eronder — samen bovenconstructie.",
     },
     {
       id: "onder",
@@ -173,12 +224,12 @@
         "Onderdeel onderconstructie. Overhoogte telt mee in totale funderingdikte.",
     },
     "fund-licht": {
-      label: "Licht fundering",
-      hint: "BIMS of schuimglas — gewapend met Romfix SIF 10 (E'Grid + R'Cel).",
+      label: "Schuimglas / puimsteen",
+      hint: "Onderlaag onder de druklaag. Wapening kies je hier, niet op de overhoogte.",
     },
     "fund-druk": {
       label: "Druklaag",
-      hint: "Dragende laag boven licht vulmateriaal; altijd voorzien van geogrid (SIF 5).",
+      hint: "Bovenste laag van de lichte fundering. Blijft ongewapend; wapening zit op de onderlaag.",
     },
     ogv: {
       label: "Ondergrond verbetering",
@@ -197,7 +248,7 @@
     },
     fund: {
       dikte: [
-        { key: "funderingBasis", label: "Fundering (nominaal)", unit: "mm", min: 50, max: 500, step: 10 },
+        { key: "funderingBasis", label: "Dikte", unit: "mm", min: 50, max: FUNDERING_BASIS_MAX_MM, step: 10 },
         { key: "overhoogte", label: "Overhoogte", unit: "mm", min: 0, max: 300, step: 10 },
       ],
       materiaal: [
@@ -208,8 +259,8 @@
           key: "druklaagDikte",
           label: "Dikte druklaag",
           unit: "mm",
-          min: 80,
-          max: 400,
+          min: DRUKLAAG_MIN_MM,
+          max: DRUKLAAG_MAX_MM,
           step: 10,
         },
         {
@@ -224,14 +275,16 @@
       wapening: [
         {
           key: "wapFundering",
-          label: "Standaard hoogte wapening",
+          label: "Effectieve werkingsdikte eerste wapeningsrij",
           unit: "mm",
-          choices: WAP_FUNDERING_KEUZES,
+          min: 50,
+          max: 400,
+          step: 10,
         },
       ],
     },
     ogv: {
-      dikte: [{ key: "ogvDikte", label: "Dikte laag", unit: "mm", min: 50, max: 600, step: 10 }],
+      dikte: [{ key: "ogvDikte", label: "Dikte", unit: "mm", min: 50, max: 600, step: 10 }],
       materiaal: [{ key: "eOgv", label: "E-modulus vulmateriaal", unit: "MPa", min: 30, max: 600, step: 1 }],
       wapening: [
         { key: "wapOgv", label: "Werkingsdikte wapening", unit: "mm", min: 50, max: 400, step: 10 },
@@ -246,11 +299,19 @@
 
   let sheet = "roadbase";
   const EXPERT_SESSION_KEY = "romfix-expert-auth";
-  let wapeningFund = true;
-  let wapeningOgv = true;
-  let selected = "onder";
+  let wapeningFund = false;
+  let wapeningOgv = false;
+  let selected = "grond";
   let values = {};
   let materiaalKeuze = { eFundering: "", eDruklaag: "", eOgv: "", eOndergrond: "" };
+
+  function tx(s) {
+    return window.RomfixI18n ? window.RomfixI18n.t(s) : s == null ? "" : String(s);
+  }
+
+  function applyI18n() {
+    if (window.RomfixI18n) window.RomfixI18n.apply();
+  }
 
   const tableEl = document.getElementById("table");
   const tableBody = document.querySelector("#table tbody");
@@ -264,8 +325,6 @@
   const expertDashboardEl = document.getElementById("expert-dashboard");
   const standardViewEl = document.getElementById("standard-view");
   const expertToggleEl = document.getElementById("expert-toggle");
-  const guideToggleEl = document.getElementById("guide-toggle");
-  const guidePanelEl = document.getElementById("guide-panel");
   const tableToggleEl = document.getElementById("table-toggle");
   const tableWrapEl = document.getElementById("table-wrap");
   const expertLoginEl = document.getElementById("expert-login");
@@ -274,11 +333,159 @@
   const expertLoginSubmitEl = document.getElementById("expert-login-submit");
   const expertLoginCancelEl = document.getElementById("expert-login-cancel");
 
+  let showOngewapend = false;
+  const visitedGroups = { grond: false, ogv: false, fund: false, boven: false };
+
+  function markVisited(id) {
+    if (id === "boven") visitedGroups.boven = true;
+    else if (id === "grond") visitedGroups.grond = true;
+    else if (id === "ogv") visitedGroups.ogv = true;
+    else if (id === "fund" || id === "fund-licht" || id === "fund-druk") visitedGroups.fund = true;
+    else if (id === "onder") {
+      visitedGroups.fund = true;
+      visitedGroups.ogv = true;
+    }
+  }
+
+  function invoerCompleet() {
+    return !!(visitedGroups.grond && visitedGroups.ogv && visitedGroups.fund && visitedGroups.boven);
+  }
+
+  function syncOngewapendUi() {
+    const wrap = document.getElementById("ongewapend-toggle-wrap");
+    const toggle = document.getElementById("toggle-ongewapend");
+    const ongCol = document.getElementById("visual-col-ong");
+    const sub = document.getElementById("profile-sub");
+    const table = document.getElementById("table");
+    if (wrap) wrap.hidden = false;
+    if (toggle) {
+      toggle.disabled = false;
+      toggle.checked = !!showOngewapend;
+    }
+    if (ongCol) ongCol.hidden = !showOngewapend;
+    if (sub) {
+      sub.textContent = showOngewapend
+        ? tx("Gewapend boven, ongewapend ter vergelijking eronder")
+        : tx("Klik op de laag die je wilt aanpassen.");
+    }
+    if (table) table.classList.toggle("table--solo", !showOngewapend);
+  }
+
   let expertMode = false;
   let expertDashBuilt = false;
   let expertEventsBound = false;
-  const WAPENING_LICHT_TYPE = "grid_cell";
+  const WAPENING_LICHT_DEFAULT = WAPENING_TYPE_DEFAULT;
   const WAPENING_DRUKLAAG_TYPE = "grid_only";
+
+  function typeHasRcel(typeId) {
+    const id = normalizeWapeningId(typeId);
+    return id === "cell_only" || id === "grid_cell";
+  }
+
+  function growOnderlaagVoorCel(cellMm) {
+    const cel = Math.max(0, Number(cellMm) || 0);
+    if (!cel) return false;
+    if (isDruklaagActief()) {
+      const druk = Number(values.druklaagDikte) || DRUKLAAG_DEFAULT_MM;
+      const licht = Math.max(0, (Number(values.funderingBasis) || 0) - druk);
+      if (licht >= cel) return false;
+      values.druklaagDikte = druk;
+      values.lichtDikte = cel;
+      values.funderingBasis = Math.min(FUNDERING_BASIS_MAX_MM, druk + cel);
+      clampDruklaagDiktes();
+      return true;
+    }
+    if ((Number(values.funderingBasis) || 0) >= cel) return false;
+    values.funderingBasis = Math.min(FUNDERING_BASIS_MAX_MM, cel);
+    return true;
+  }
+
+  function rcelHoogteMm() {
+    const n = Number(values.rcelHoogte);
+    return RCEL_HOOGTE_KEUZES.indexOf(n) >= 0 ? n : RCEL_HOOGTE_DEFAULT;
+  }
+
+  function rcelHoogteField() {
+    return {
+      key: "rcelHoogte",
+      label: "Hoogte R'Cel",
+      unit: "mm",
+      choices: RCEL_HOOGTE_KEUZES,
+    };
+  }
+
+  const OVERHOOGTE_GEWAP_MAX = 150;
+
+  /**
+   * R'Cel 100/150/200. Boven de cel: max. 150 mm gewapend, de rest ongewapend.
+   */
+  function cellFillSplit(layerMm) {
+    const laag = Math.max(0, Number(layerMm) || 0);
+    const product = rcelHoogteMm();
+    const cell = Math.min(laag, product);
+    const fill = Math.max(0, laag - cell);
+    const fillGew = Math.min(fill, OVERHOOGTE_GEWAP_MAX);
+    const fillOng = Math.max(0, fill - OVERHOOGTE_GEWAP_MAX);
+    return {
+      product: product,
+      cell: cell,
+      fill: fill,
+      fillGew: fillGew,
+      fillOng: fillOng,
+      ohGew: fillGew,
+      ohOng: fillOng,
+      wapMm: cell + fillGew,
+      ongMm: fillOng,
+    };
+  }
+
+  /** Van boven naar onder: ongewapend lichtgroen → gewapende overhoogte → gewapende celhoogte. */
+  function cellSplitBands(split, prefix, infillNaam) {
+    const p = prefix ? prefix + " · " : "";
+    const bands = [];
+    if (!split) return bands;
+    if (split.fillOng > 0) {
+      bands.push({ cls: "groen-licht", name: p + "ongewapende overhoogte", mm: split.fillOng, kind: "ong" });
+    }
+    if (split.fillGew > 0) {
+      bands.push({ cls: "gewap", name: p + "gewapende overhoogte", mm: split.fillGew, kind: "vul" });
+    }
+    if (split.cell > 0) {
+      bands.push({
+        cls: "gewap",
+        name: infillNaam ? "R'Cel · infill " + infillNaam : p + "gewapende celhoogte",
+        mm: split.cell,
+        kind: "cel",
+      });
+    }
+    return bands;
+  }
+
+  function appendCellSplitParts(parts, zoneId, split, mpaFor, clsMap, prefix, infillNaam) {
+    clsMap = clsMap || {};
+    cellSplitBands(split, prefix, infillNaam).forEach(function (b) {
+      const cls = clsMap[b.kind] || b.cls;
+      const mpa = mpaFor ? mpaFor(b) : null;
+      parts.push(segmentBtn(zoneId, cls, b.name, b.mm, mpa, b.mm));
+    });
+  }
+
+  function rcelSplitNoteHtml(split) {
+    if (!split) return "";
+    return (
+      "<strong>R'Cel:</strong> " +
+      split.cell +
+      " mm" +
+      (split.cell < split.product ? " (keuze " + split.product + " mm, laag is dunner)" : "") +
+      "<br>" +
+      (split.fillOng > 0
+        ? '<strong class="warn">Ongewapend boven de cel:</strong> ' + split.fillOng + " mm<br>"
+        : "") +
+      "<strong>Gewapend totaal:</strong> " +
+      split.wapMm +
+      " mm<br>"
+    );
+  }
 
   let calcCache = null;
   let mifLookupMeta = { fund: null, ogv: null, licht: null };
@@ -307,6 +514,7 @@
       key === "funderingBasis" ||
       key === "overhoogte" ||
       key === "druklaagDikte" ||
+      key === "lichtDikte" ||
       key === "eDruklaag"
     );
   }
@@ -317,7 +525,17 @@
     if (s === "Schuimglas" || s === "schuimglas" || s === "Glasschuim" || s === "glasschuim") {
       return "Schuimglas";
     }
-    if (s === "BIMS" || s === "bims") return "BIMS";
+    if (
+      s === "BIMS" ||
+      s === "bims" ||
+      s === "Bims" ||
+      s === "Puimsteen" ||
+      s === "puimsteen" ||
+      s === "puinsteen"
+    ) {
+      return "Puimsteen";
+    }
+    if (s === "Argex" || s === "argex" || s === "ARGEX") return "Argex";
     return "";
   }
 
@@ -347,13 +565,18 @@
     const chosen = normalizeLichtFunderingLabel(materiaalKeuze.eFundering) || materiaalKeuze.eFundering;
     if (chosen) {
       if (!isLichtFunderingLabel(chosen)) return false;
-      const licht = lichtFunderingEntryForLabel(chosen);
-      return licht ? values.eFundering === licht.mpa : true;
+      return !!lichtFunderingEntryForLabel(chosen);
     }
     const m = MATERIAAL_LAAG.find(function (x) {
       return x.mpa === values.eFundering;
     });
     return !!(m && isLichtFunderingLabel(m.label));
+  }
+
+  function activeLichtLabel() {
+    const chosen = normalizeLichtFunderingLabel(materiaalKeuze.eFundering) || materiaalKeuze.eFundering;
+    if (chosen && isLichtFunderingLabel(chosen)) return chosen;
+    return "Licht vulmateriaal";
   }
 
   function isDruklaagActief() {
@@ -362,13 +585,232 @@
 
   function clampDruklaagDiktes() {
     if (!isDruklaagActief()) return;
-    const basis = values.funderingBasis || 0;
+    let basis = Math.max(50, Math.min(FUNDERING_BASIS_MAX_MM, Number(values.funderingBasis) || 0));
     let druk = Number(values.druklaagDikte) || DRUKLAAG_DEFAULT_MM;
-    druk = Math.max(DRUKLAAG_MIN_MM, Math.min(basis - LICHT_MIN_MM, druk));
-    if (basis < DRUKLAAG_MIN_MM + LICHT_MIN_MM) {
-      druk = Math.max(DRUKLAAG_MIN_MM, Math.min(basis, druk));
+    druk = Math.max(DRUKLAAG_MIN_MM, Math.min(DRUKLAAG_MAX_MM, druk));
+    let licht = Math.max(0, basis - druk);
+    if (licht > LICHT_MAX_MM) {
+      licht = LICHT_MAX_MM;
+      druk = Math.max(DRUKLAAG_MIN_MM, Math.min(DRUKLAAG_MAX_MM, basis - licht));
     }
+    if (licht < LICHT_MIN_MM) {
+      licht = LICHT_MIN_MM;
+      druk = Math.max(DRUKLAAG_MIN_MM, Math.min(DRUKLAAG_MAX_MM, basis - licht));
+    }
+    basis = Math.max(LICHT_MIN_MM + DRUKLAAG_MIN_MM, Math.min(FUNDERING_BASIS_MAX_MM, licht + druk));
+    values.funderingBasis = basis;
     values.druklaagDikte = druk;
+    values.lichtDikte = Math.max(0, basis - druk);
+  }
+
+  function druklaagDikteField() {
+    const basis = values.funderingBasis || 0;
+    const maxD = Math.min(DRUKLAAG_MAX_MM, Math.max(DRUKLAAG_MIN_MM, basis - LICHT_MIN_MM));
+    return {
+      key: "druklaagDikte",
+      label: "Druklaag",
+      unit: "mm",
+      min: DRUKLAAG_MIN_MM,
+      max: maxD,
+      step: 10,
+    };
+  }
+
+  function lichtDikteField() {
+    const f = fundMeta(wapeningFund);
+    values.lichtDikte = f.lichtDikte;
+    return {
+      key: "lichtDikte",
+      label: activeLichtLabel(),
+      unit: "mm",
+      min: LICHT_MIN_MM,
+      max: LICHT_MAX_MM,
+      step: 10,
+    };
+  }
+
+  function syncDrukLichtSliderDom() {
+    if (!isDruklaagActief()) return;
+    clampDruklaagDiktes();
+    const f = fundMeta(wapeningFund);
+    values.lichtDikte = f.lichtDikte;
+    const maxD = Math.min(
+      DRUKLAAG_MAX_MM,
+      Math.max(DRUKLAAG_MIN_MM, (values.funderingBasis || 0) - LICHT_MIN_MM)
+    );
+    const dSl = document.getElementById("f-druklaagDikte");
+    const dVal = document.getElementById("v-druklaagDikte");
+    if (dSl) {
+      dSl.max = String(maxD);
+      dSl.value = String(values.druklaagDikte);
+    }
+    if (dVal) dVal.textContent = values.druklaagDikte + " mm";
+    const lSl = document.getElementById("f-lichtDikte");
+    const lVal = document.getElementById("v-lichtDikte");
+    if (lSl) {
+      lSl.max = String(LICHT_MAX_MM);
+      lSl.value = String(f.lichtDikte);
+    }
+    if (lVal) lVal.textContent = f.lichtDikte + " mm";
+    const bSl = document.getElementById("f-funderingBasis");
+    const bVal = document.getElementById("v-funderingBasis");
+    if (bSl) {
+      bSl.max = String(FUNDERING_BASIS_MAX_MM);
+      bSl.value = String(values.funderingBasis);
+    }
+    if (bVal) bVal.textContent = values.funderingBasis + " mm";
+  }
+
+  function lichtDrukDikteSectionHtml() {
+    if (!isDruklaagActief()) return "";
+    const f = fundMeta(wapeningFund);
+    return (
+      '<div class="field-section druklaag-section">' +
+      '<div class="field-section-title">Dikte</div>' +
+      '<p class="field-note">' +
+      tx("Samen ") +
+      f.basis +
+      " mm " +
+      tx("nominale fundering") +
+      ". " +
+      tx("Lichte laag tot 1000 mm; de fundering groeit mee, de druklaag blijft.") +
+      "</p>" +
+      fieldHtml(druklaagDikteField(), false) +
+      fieldHtml(lichtDikteField(), false) +
+      "</div>"
+    );
+  }
+
+  function materiaalFieldHtmlLabeled(f, label) {
+    const labelHtml = label
+      ? '<label class="materiaal-label" for="mat-' +
+        f.key +
+        '">' +
+        label +
+        "</label>"
+      : "";
+    const aria = label ? "" : ' aria-label="' + (f.label || f.key) + '"';
+    return (
+      '<div class="field materiaal-field">' +
+      labelHtml +
+      '<select id="mat-' +
+      f.key +
+      '" class="materiaal-select" data-key="' +
+      f.key +
+      '"' +
+      aria +
+      ">" +
+      materiaalSelectOptions(f.key) +
+      "</select>" +
+      fieldHtml(f, false) +
+      "</div>"
+    );
+  }
+
+  function lichtLayerCardHtml(kind, title, inner) {
+    const kicker = kind === "onder" ? "Onderlaag" : "Boven in het pakket";
+    return (
+      '<div class="layer-card layer-card--' +
+      kind +
+      '">' +
+      '<p class="layer-card__kicker">' +
+      kicker +
+      "</p>" +
+      '<p class="layer-card__title">' +
+      title +
+      "</p>" +
+      inner +
+      "</div>"
+    );
+  }
+
+  function lichtDrukMateriaalHtml() {
+    const drukFld = {
+      key: "eDruklaag",
+      label: "E-modulus druklaag",
+      unit: "MPa",
+      min: 30,
+      max: 600,
+      step: 5,
+    };
+    const lichtFld = FIELDS.fund.materiaal[0];
+    return (
+      '<div class="field-section">' +
+      '<div class="field-section-title">Materiaal</div>' +
+      '<div class="layer-stack">' +
+      lichtLayerCardHtml("druk", "Druklaag", materiaalFieldHtmlLabeled(drukFld, "")) +
+      lichtLayerCardHtml(
+        "onder",
+        activeLichtLabel(),
+        materiaalFieldHtmlLabeled(lichtFld, "")
+      ) +
+      "</div></div>"
+    );
+  }
+
+  function fundBimsInvoerHtml(wapUit) {
+    const drukFld = {
+      key: "eDruklaag",
+      label: "Stijfheid",
+      unit: "MPa",
+      min: 30,
+      max: 600,
+      step: 5,
+    };
+    const lichtFld = {
+      key: "eFundering",
+      label: "Stijfheid",
+      unit: "MPa",
+      min: 30,
+      max: 600,
+      step: 5,
+    };
+    return (
+      lichtDrukDikteSectionHtml() +
+      overhoogteInvoerHtml() +
+      '<div class="field-section">' +
+      '<div class="field-section-title">Materiaal</div>' +
+      materiaalFieldHtmlLabeled(drukFld, "Druklaag") +
+      materiaalFieldHtmlLabeled(lichtFld, activeLichtLabel()) +
+      "</div>" +
+      (wapUit
+        ? ""
+        : '<div class="field-section">' +
+          '<div class="field-section-title">Wapening op de lichte laag</div>' +
+          wapeningTypeHtml("fund-licht", false, { compact: true, label: "" }) +
+          "</div>")
+    );
+  }
+
+  function overhoogteInvoerHtml() {
+    const mm = Number(values.overhoogte) || 0;
+    if (mm <= 0) {
+      return '<button type="button" class="text-btn" data-add-overhoogte="1">+ Overhoogte</button>';
+    }
+    const oh = FIELDS.fund.dikte.find(function (f) {
+      return f.key === "overhoogte";
+    });
+    return fieldHtml(Object.assign({}, oh, { label: "Overhoogte, ongewapend" }), false);
+  }
+
+  function lichtDrukWapeningHtml(disabled, opts) {
+    opts = opts || {};
+    const compact = { compact: true, label: "" };
+    return (
+      '<div class="field-section">' +
+      '<div class="field-section-title">Wapening</div>' +
+      (opts.includeToggle === false ? "" : wapeningToggleHtml("fund")) +
+      '<div class="layer-stack">' +
+      lichtLayerCardHtml(
+        "onder",
+        "Wapening onderlaag",
+        wapeningTypeHtml("fund-licht", disabled, compact) +
+          '<p class="field-note">Op de onderlaag kies je de wapening. De druklaag heeft standaard geogrid. Overhoogte blijft ongewapend.</p>'
+      ) +
+      "</div>" +
+      factorLegendNote() +
+      "</div>"
+    );
   }
 
   function exitLichtFundering() {
@@ -414,8 +856,11 @@
         materiaalKeuze.eDruklaag = "Steenslag/steenmengsels";
       }
       clampDruklaagDiktes();
+      if (!wasDruklaag) values.wapTypeFund = WAPENING_DRUKLAAG_TYPE;
       lockLichtWapeningTypes();
-      if (!wasDruklaag && selected === "fund") selected = "fund-druk";
+      if (!wasDruklaag && (selected === "fund" || selected === "fund-druk")) {
+        selected = "fund-licht";
+      }
     } else {
       values.druklaagAan = false;
       values.eLichtFundering = values.eFundering;
@@ -433,16 +878,39 @@
     }
   }
 
+  function lichtWapeningTypeId() {
+    return normalizeWapeningId(values.wapTypeLicht || WAPENING_LICHT_DEFAULT);
+  }
+
+  function druklaagWapeningTypeId() {
+    return normalizeWapeningId(values.wapTypeFund || WAPENING_DRUKLAAG_TYPE);
+  }
+
+  function typeHasSif(typeId) {
+    const t = wapeningTypeById(typeId);
+    return !!(t && t.id !== "none" && t.sif > 0);
+  }
+
+  function lichtHasWapening() {
+    return typeHasSif(lichtWapeningTypeId());
+  }
+
+  /** Druklaag heeft geen keuze: bij wapening aan altijd geogrid (E'Grid, SIF 5). */
+  function druklaagHasWapening() {
+    return !!(wapeningFund && isDruklaagActief());
+  }
+
+  function syncSifFromWapeningTypes() {
+    const licht = wapeningTypeById(lichtWapeningTypeId());
+    values.sifLicht = licht ? licht.sif : 0;
+    const druk = wapeningTypeById(druklaagWapeningTypeId());
+    values.sifFundering = druk ? druk.sif : 0;
+  }
+
   function lockLichtWapeningTypes() {
-    const druk = wapeningTypeById(WAPENING_DRUKLAAG_TYPE);
-    const licht = wapeningTypeById(WAPENING_LICHT_TYPE);
-    if (druk) {
-      values.wapTypeFund = druk.id;
-      values.sifFundering = druk.sif;
-    }
-    if (licht) {
-      values.sifLicht = licht.sif;
-    }
+    if (!values.wapTypeLicht) values.wapTypeLicht = WAPENING_LICHT_DEFAULT;
+    if (!values.wapTypeFund) values.wapTypeFund = WAPENING_DRUKLAAG_TYPE;
+    syncSifFromWapeningTypes();
   }
 
   function syncMifFromWapening() {
@@ -451,21 +919,33 @@
     if (wapeningFund) {
       const onderbouw = mifOnderbouwFund();
       if (isDruklaagActief()) {
-        const drukInfo = window.RomfixMif.lookupMif(
-          WAPENING_DRUKLAAG_TYPE,
-          onderbouw,
-          values.eDruklaag || values.eFundering
-        );
-        values.mifFundering = drukInfo.mif;
-        mifLookupMeta.fund = drukInfo;
-        const lichtInfo = window.RomfixMif.lookupMif(
-          WAPENING_LICHT_TYPE,
-          onderbouw,
-          values.eLichtFundering || values.eFundering
-        );
-        values.mifLicht = lichtInfo.mif;
-        values.sifLicht = (wapeningTypeById(WAPENING_LICHT_TYPE) || {}).sif || 10;
-        mifLookupMeta.licht = lichtInfo;
+        const drukType = druklaagWapeningTypeId();
+        if (druklaagHasWapening()) {
+          const drukInfo = window.RomfixMif.lookupMif(
+            drukType,
+            onderbouw,
+            values.eDruklaag || values.eFundering
+          );
+          values.mifFundering = drukInfo.mif;
+          mifLookupMeta.fund = drukInfo;
+        } else {
+          values.mifFundering = 0;
+          mifLookupMeta.fund = null;
+        }
+        const lichtType = lichtWapeningTypeId();
+        if (lichtHasWapening()) {
+          const lichtInfo = window.RomfixMif.lookupMif(
+            lichtType,
+            onderbouw,
+            values.eLichtFundering || values.eFundering
+          );
+          values.mifLicht = lichtInfo.mif;
+          mifLookupMeta.licht = lichtInfo;
+        } else {
+          values.mifLicht = 0;
+          mifLookupMeta.licht = null;
+        }
+        syncSifFromWapeningTypes();
       } else {
         const info = window.RomfixMif.lookupMif(
           normalizeWapeningId(values.wapTypeFund || WAPENING_TYPE_DEFAULT),
@@ -508,6 +988,7 @@
   }
 
   function sifExcelRef(layer) {
+    if (layer === "fund-licht") return "";
     return layer === "fund" ? "D19" : "D20";
   }
 
@@ -516,15 +997,42 @@
   }
 
   function sifFieldLabel(layer) {
-    return sifExcelRef(layer) + " SIF (-) · " + SIF_NAME;
+    if (layer === "fund-licht") return "SIF";
+    return expertMode ? sifExcelRef(layer) + " SIF" : "SIF";
   }
 
   function mifFieldLabel(layer) {
-    return mifExcelRef(layer) + " MIF (-) · " + MIF_NAME;
+    return expertMode ? mifExcelRef(layer) + " MIF" : "MIF";
   }
 
-  function wapeningOptionLabel(t) {
-    return t.label + " — " + t.product + " (SIF " + formatFactor(t.sif) + ")";
+  function laagIsSchuimglas(layer) {
+    const key = layer === "ogv" ? "eOgv" : "eFundering";
+    const m = materiaalMatch(key);
+    if (!m) return false;
+    const label = normalizeLichtFunderingLabel(m.label) || m.label;
+    return label === "Schuimglas";
+  }
+
+  function wapeningOptionLabel(t, compact, layer) {
+    if (!t) return "—";
+    const rcel = laagIsSchuimglas(layer) ? "R'Cel 150/1" : "R'Cel 150/2";
+    let name = t.label;
+    if (t.id === "none") name = "Geen";
+    else if (t.id === "grid_only") name = "Geogrid (E'Grid 30/30)";
+    else if (t.id === "cell_only") name = "Geocel (" + rcel + ")";
+    else if (t.id === "grid_cell") name = "Romfix combinatie (E'Grid + R'Cel)";
+    if (!t.sif) return name;
+    return name + " · SIF " + formatFactor(t.sif);
+  }
+
+  function syncWapeningOptionLabels() {
+    document.querySelectorAll("select.wapening-type-select").forEach(function (sel) {
+      const layer = sel.getAttribute("data-layer");
+      sel.querySelectorAll("option").forEach(function (opt) {
+        const t = wapeningTypeById(opt.value);
+        if (t) opt.textContent = wapeningOptionLabel(t, false, layer);
+      });
+    });
   }
 
   function factorLegendNote() {
@@ -541,25 +1049,26 @@
   function mifNoteHtml(layer, on) {
     const info = layer === "fund" ? mifLookupMeta.fund : mifLookupMeta.ogv;
     if (!on || !info) {
-      return (
-        "Automatisch uit ROMFIX " +
-        MIF_NAME +
-        " (MIF)-tabel (2D: stijfheid onderbouw × stijfheid invulling E In)."
-      );
+      return "Volgt uit de stijfheid van de ondergrond en de ongewapende stijfheid van deze laag.";
     }
-    let extra =
+    const extra =
       layer === "fund"
-        ? " Onderbouw-as = ongewapende equivalente E onder fundering (D14)."
-        : " Onderbouw-as = E-modulus ondergrond (C15).";
+        ? " Ondergrond hier = stijfheid onder de fundering."
+        : " Ondergrond hier = E-modulus bestaande bodem.";
+    const schaal =
+      info.eInfill > 250
+        ? " Boven 250 MPa loopt de extra factor terug: wapening telt mee, niet 2–3× de cataloguswaarde."
+        : "";
     return (
-      "ROMFIX-tabel <strong>" +
-      info.tabel +
-      "</strong> · stijfheid onderbouw " +
+      "MIF " +
+      formatFactor(info.mif) +
+      " · ondergrond " +
       info.eOnderbouw +
-      " MPa × E In " +
+      " MPa × ongewapende laag " +
       info.eInfill +
-      " MPa (2D-interpolatie)." +
-      extra
+      " MPa." +
+      extra +
+      schaal
     );
   }
 
@@ -627,16 +1136,18 @@
 
   function normalizeWapFundering(mm) {
     const n = Number(mm);
-    if (WAP_FUNDERING_KEUZES.indexOf(n) >= 0) return n;
-    return WAP_FUNDERING_KEUZES.reduce(function (best, opt) {
-      return Math.abs(opt - n) < Math.abs(best - n) ? opt : best;
-    }, WAP_FUNDERING_KEUZES[0]);
+    if (!Number.isFinite(n) || n <= 0) return WAP_FUNDERING_WERKING_DEFAULT;
+    /* Oude deellinks: 100/150/200 was producthoogte, werkingsdikte = +150. */
+    if (WAP_FUNDERING_KEUZES.indexOf(n) >= 0) {
+      return Math.min(400, n + WAP_FUNDERING_WERKING_EXTRA);
+    }
+    return Math.max(50, Math.min(400, n));
   }
 
   function wapFunderingWerkingsdikte(standaardMm, dikteTotaal) {
-    const standaard = Number(standaardMm) || 0;
+    const working = Number(standaardMm) || 0;
     const totaal = Number(dikteTotaal) || 0;
-    return Math.min(totaal, standaard + WAP_FUNDERING_WERKING_EXTRA);
+    return Math.min(totaal, working);
   }
 
   function fundMeta(fundWap) {
@@ -647,16 +1158,25 @@
     const drukBasis = druklaagAan ? Number(values.druklaagDikte) || DRUKLAAG_DEFAULT_MM : basis;
     const lichtDikte = druklaagAan ? Math.max(0, basis - drukBasis) : 0;
     const drukStackMm = druklaagAan ? drukBasis + oh : dikteTotaal;
-    const ohGew = Math.min(oh, OVERHOOGTE_GEWAP_MAX);
-    const ohOng = Math.max(0, oh - OVERHOOGTE_GEWAP_MAX);
     const fundOn = fundWap === undefined ? wapeningFund : fundWap;
     const standaardWap = normalizeWapFundering(values.wapFundering);
+    const fundTypeId = normalizeWapeningId(values.wapTypeFund || WAPENING_TYPE_DEFAULT);
+    const lichtTypeId = lichtWapeningTypeId();
+    const fundRcel = fundOn && !druklaagAan && typeHasRcel(fundTypeId);
+    const lichtRcel = fundOn && druklaagAan && typeHasRcel(lichtTypeId) && lichtHasWapening();
+    const fundSplit = fundRcel ? cellFillSplit(basis) : null;
+    const lichtSplit = lichtRcel ? cellFillSplit(lichtDikte) : null;
+    const ohGew = fundOn ? Math.min(oh, OVERHOOGTE_GEWAP_MAX) : 0;
+    const ohOng = Math.max(0, oh - ohGew);
     let wapDikte = 0;
-    if (fundOn) {
-      /* Bij BIMS/schuimglas: hele druklaag heeft geogrid; lichtlaag is SIF 10. */
-      wapDikte = druklaagAan
-        ? drukStackMm
-        : wapFunderingWerkingsdikte(standaardWap, drukStackMm);
+    if (fundOn && !druklaagAan) {
+      if (fundSplit) {
+        wapDikte = Math.min(fundSplit.wapMm + ohGew, dikteTotaal);
+      } else {
+        wapDikte = wapFunderingWerkingsdikte(standaardWap, basis + ohGew);
+      }
+    } else if (fundOn && druklaagAan) {
+      wapDikte = drukBasis;
     }
     return {
       basis,
@@ -670,6 +1190,8 @@
       ohOng,
       standaardWap,
       wapDikte,
+      fundSplit,
+      lichtSplit,
       eLicht: values.eLichtFundering || values.eFundering,
       eDruk: values.eDruklaag || values.eFundering,
     };
@@ -687,7 +1209,12 @@
       C15: values.eOndergrond,
       B19: fundOn ? f.wapDikte : 0,
       B20: ogvOn ? values.wapOgv : 0,
-      D19: values.sifFundering,
+      D19:
+        fundOn && (!f.druklaagAan || druklaagHasWapening())
+          ? isFunderingVast()
+            ? 99.9
+            : values.sifFundering
+          : 0,
       D20: values.sifOgv,
       E19: values.mifFundering,
       E20: values.mifOgv,
@@ -696,8 +1223,9 @@
     if (f.druklaagAan && f.lichtDikte > 0) {
       inp.B13Licht = f.lichtDikte;
       inp.C13Licht = f.eLicht;
-      inp.sifLicht = fundOn ? values.sifLicht || 10 : 0;
+      inp.sifLicht = fundOn && lichtHasWapening() ? values.sifLicht || 0 : 0;
       inp.mifLicht = values.mifLicht;
+      if (fundOn && f.lichtSplit) inp.lichtWapMm = f.lichtSplit.wapMm;
     }
     return inp;
   }
@@ -723,7 +1251,7 @@
   /** Print/PDF: type volgt de gekozen toplaag, niet het Excel-blad (roadbase heette altijd “Beton + fundering”). */
   function constructiePrintLabel() {
     const bovenL = bovenActieveLaag();
-    if (bovenL) return bovenL.label + " + fundering";
+    if (bovenL) return tx(bovenL.label + " + fundering");
     const c = constructieBySheet(sheet);
     return c ? c.label : "";
   }
@@ -755,6 +1283,9 @@
   }
 
   function panelLayerMeta(id) {
+    if (id === "fund-licht" && SUB_LAYERS[id]) {
+      return Object.assign({}, SUB_LAYERS[id], { label: activeLichtLabel() });
+    }
     if (SUB_LAYERS[id]) return SUB_LAYERS[id];
     return LAYERS.find(function (L) {
       return L.id === id;
@@ -854,14 +1385,14 @@
     sheet = s;
     const p = PRESETS[sheet];
     const constructie = constructieBySheet(s);
-    wapeningFund = true;
-    wapeningOgv = true;
+    wapeningFund = false;
+    wapeningOgv = false;
     materiaalKeuze = {
       eFundering: "Steenslag/steenmengsels",
       eOgv: "Steenslag/steenmengsels",
       eOndergrond: "",
     };
-    const bovenToplaag = s === "capping" ? "klinkers" : "beton";
+    const bovenToplaag = "klinkers";
     const mm = {};
     BOVEN_LAGEN.forEach(function (L) {
       mm[L.dikteKey] = L.defaultMm;
@@ -875,7 +1406,11 @@
       bovenToplaag: bovenToplaag,
       bovenKlinkers: mm.bovenKlinkers,
       bovenAsfalt: mm.bovenAsfalt,
+      bovenAsfaltDek: 40,
+      bovenAsfaltTussen: 50,
+      bovenAsfaltOnder: 90,
       bovenBeton: mm.bovenBeton,
+      bovenBedding: BOVEN_BEDDING_DEFAULT,
       bovenStraatzand: straatzandMm,
       bovenDikte: (activeLaag ? activeLaag.defaultMm : 0) + straatzandMm,
       funderingBasis: p.funderingBasis,
@@ -890,6 +1425,7 @@
       sifOgv: p.sifOgv,
       wapTypeFund: WAPENING_TYPE_DEFAULT,
       wapTypeOgv: WAPENING_TYPE_DEFAULT,
+      wapTypeLicht: WAPENING_LICHT_DEFAULT,
       mifFundering: 0,
       mifOgv: 0,
       funderingModus: p.funderingModus,
@@ -899,6 +1435,8 @@
       eLichtFundering: p.eFundering,
       sifLicht: 0,
       mifLicht: 0,
+      rcelHoogte: RCEL_HOOGTE_DEFAULT,
+      maaiveldMm: 0,
     };
     syncWapeningTypesFromSif();
     syncDruklaagFromFundering();
@@ -912,17 +1450,23 @@
     });
   }
 
+  function wapeningTypesForLayer(layer) {
+    return WAPENING_TYPES;
+  }
+
   function wapeningTypeKey(layer) {
+    if (layer === "fund-licht") return "wapTypeLicht";
     return layer === "fund" ? "wapTypeFund" : "wapTypeOgv";
   }
 
   function sifKeyForLayer(layer) {
+    if (layer === "fund-licht") return "sifLicht";
     return layer === "fund" ? "sifFundering" : "sifOgv";
   }
 
-  function wapeningTypeLabel(typeId) {
+  function wapeningTypeLabel(typeId, layer) {
     const t = wapeningTypeById(typeId);
-    return t ? wapeningOptionLabel(t) : "—";
+    return t ? wapeningOptionLabel(t, false, layer) : "—";
   }
 
   function wapeningTypeFromSif(sif) {
@@ -935,7 +1479,7 @@
   }
 
   function syncWapeningTypesFromSif() {
-    ["fund", "ogv"].forEach(function (layer) {
+    ["fund", "ogv", "fund-licht"].forEach(function (layer) {
       const typeKey = wapeningTypeKey(layer);
       const sifKey = sifKeyForLayer(layer);
       const match = wapeningTypeFromSif(values[sifKey]);
@@ -952,42 +1496,63 @@
     });
   }
 
-  function wapeningTypeHtml(layer, disabled) {
-    const lockedLicht = layer === "fund" && isDruklaagActief();
-    if (lockedLicht) disabled = true;
+  function wapeningTypeHtml(layer, disabled, htmlOpts) {
+    htmlOpts = htmlOpts || {};
+    const allowed = wapeningTypesForLayer(layer);
     const typeKey = wapeningTypeKey(layer);
     const sifKey = sifKeyForLayer(layer);
     const curType = normalizeWapeningId(
-      lockedLicht ? WAPENING_DRUKLAAG_TYPE : values[typeKey] || WAPENING_TYPE_DEFAULT
+      layer === "fund-licht"
+        ? lichtWapeningTypeId()
+        : layer === "fund" && isDruklaagActief()
+          ? druklaagWapeningTypeId()
+          : values[typeKey] || WAPENING_TYPE_DEFAULT
     );
     const cur = wapeningTypeById(curType);
     let opts = "";
-    WAPENING_TYPES.forEach(function (t) {
+    allowed.forEach(function (t) {
       opts +=
         '<option value="' +
         t.id +
-        '" title="SIF ' +
-        formatFactor(t.sif) +
-        " — " +
-        SIF_NAME +
         '"' +
         (curType === t.id ? " selected" : "") +
         ">" +
-        wapeningOptionLabel(t) +
+        wapeningOptionLabel(t, !!htmlOpts.compact, layer) +
         "</option>";
     });
+    const rcelNote = htmlOpts.compact
+      ? ""
+      : layer === "fund" && isDruklaagActief()
+        ? '<p class="field-note">Alleen deze laag. Standaard E\'Grid (SIF 5). Mag ook uit, of het systeem — los van schuimglas.</p>'
+        : layer === "fund-licht"
+          ? '<p class="field-note">Alleen de lichte laag. Rekent niet door naar de druklaag-SIF.</p>'
+          : "";
+    const wapLabel =
+      htmlOpts.label != null
+        ? htmlOpts.label
+        : layer === "fund-licht"
+          ? "Wapening schuimglas / puimsteen"
+          : layer === "fund" && isDruklaagActief()
+            ? "Wapening druklaag"
+            : "Wapeningsconfiguratie";
+    const labelHtml = wapLabel
+      ? '<label class="materiaal-label" for="wap-type-' +
+        layer +
+        '">' +
+        wapLabel +
+        "</label>"
+      : "";
     return (
       '<div class="field wapening-type-field' +
       (disabled ? " field--disabled" : "") +
       '">' +
-      '<label class="materiaal-label" for="wap-type-' +
-      layer +
-      '">Wapeningsconfiguratie</label>' +
+      labelHtml +
       '<select id="wap-type-' +
       layer +
       '" class="wapening-type-select" data-layer="' +
       layer +
       '"' +
+      (wapLabel ? "" : ' aria-label="' + (layer === "fund-licht" ? "Wapening schuimglas" : "Wapening druklaag") + '"') +
       (disabled ? " disabled" : "") +
       ">" +
       opts +
@@ -999,29 +1564,90 @@
       ': <strong>' +
       formatFactor(values[sifKey]) +
       "</strong>" +
-      (cur ? " · " + cur.product : "") +
+      (cur && cur.id !== "none" ? " · " + wapeningOptionLabel(cur, false, layer) : "") +
       "</p>" +
-      (lockedLicht
-        ? '<p class="field-note">Vast bij BIMS/schuimglas: druklaag = geogrid (SIF 5). Het lichte vulmateriaal eronder = Romfix SIF 10.</p>'
+      (htmlOpts.compact ? "" : rcelNote) +
+      (typeHasRcel(curType)
+        ? htmlOpts.compact
+          ? rcelHoogteKeuzeHtml(disabled)
+          : rcelHoogteFieldHtml(disabled)
         : "") +
-      factorLegendNote() +
+      (htmlOpts.compact ? "" : factorLegendNote()) +
       "</div>"
     );
   }
 
+  function rcelHoogteKeuzeHtml(disabled) {
+    const f = rcelHoogteField();
+    const v = values[f.key];
+    let html =
+      '<div class="rcel-keuze' +
+      (disabled ? " field--disabled" : "") +
+      '">' +
+      '<span class="materiaal-label">Celhoogte</span>' +
+      '<div class="boven-keuze wap-keuze" role="radiogroup" aria-label="Celhoogte">';
+    f.choices.forEach(function (mm) {
+      const on = v === mm;
+      html +=
+        '<label class="boven-keuze-opt' +
+        (on ? " boven-keuze-opt--active" : "") +
+        '">' +
+        '<input type="radio" name="choice-' +
+        f.key +
+        '" value="' +
+        mm +
+        '" data-wap-keuze="1" data-key="' +
+        f.key +
+        '"' +
+        (on ? " checked" : "") +
+        (disabled ? " disabled" : "") +
+        " />" +
+        "<span><strong>" +
+        mm +
+        "</strong></span></label>";
+    });
+    html += "</div></div>";
+    return html;
+  }
+
+  function rcelHoogteFieldHtml(disabled) {
+    return (
+      choiceFieldHtml(rcelHoogteField(), disabled) +
+      '<p class="field-note">Producthoogte van de cel — 100, 150 of 200 mm. Alles boven de cel, inclusief overhoogte, blijft ongewapend.</p>'
+    );
+  }
+
   function applyWapeningType(layer, typeId) {
-    if (layer === "fund" && isDruklaagActief()) return;
     const t = wapeningTypeById(typeId);
     if (!t) return;
+    const allowed = wapeningTypesForLayer(layer);
+    if (
+      !allowed.some(function (x) {
+        return x.id === t.id;
+      })
+    ) {
+      return;
+    }
     values[wapeningTypeKey(layer)] = t.id;
     values[sifKeyForLayer(layer)] = t.sif;
+    if (layer === "ogv") wapeningOgv = t.id !== "none";
+    if (layer === "fund" || layer === "fund-licht" || layer === "fund-druk") {
+      wapeningFund = t.id !== "none";
+    }
     syncMifFromWapening();
     invalidateCalcCache();
     if (expertMode) {
-      refreshExpertLive();
+      expertDashBuilt = false;
+      render();
       return;
     }
-    if (selected === "fund" || selected === "ogv" || selected === "onder") {
+    if (
+      selected === "fund" ||
+      selected === "fund-licht" ||
+      selected === "fund-druk" ||
+      selected === "ogv" ||
+      selected === "onder"
+    ) {
       renderPanel();
     }
     syncMateriaalEquivalentNotes();
@@ -1029,6 +1655,7 @@
     renderVisual();
     renderTable();
     renderLayerTabs();
+    applyI18n();
   }
 
   const VISUAL_PX_PER_MM = 0.55;
@@ -1042,6 +1669,29 @@
     return ong > 0 ? Math.round((gew / ong) * 10) / 10 : "—";
   }
 
+  function pctMeer(ong, gew) {
+    const a = Number(ong);
+    const b = Number(gew);
+    if (!(a > 0) || !isFinite(b)) return null;
+    return Math.round(((b - a) / a) * 100);
+  }
+
+  function pctTekst(n) {
+    if (n == null) return "—";
+    if (n > 0) return "+" + n + "%";
+    return n + "%";
+  }
+
+  /** Zelfde getallen als de koppen Ongewapend en Gewapend. */
+  function stijfheidPercentages() {
+    const ong = profielConstructieMpa(false, false);
+    const gew = profielConstructieMpa(wapeningFund, wapeningOgv);
+    return {
+      fund: pctMeer(ong.fund, gew.fund),
+      ogv: pctMeer(ong.ogv, gew.ogv),
+    };
+  }
+
   function bovenLaagAan(laag) {
     return values.bovenToplaag === laag.id;
   }
@@ -1052,12 +1702,115 @@
     });
   }
 
+  function asfaltLaagMm(laag) {
+    const n = Number(values[laag.key]);
+    if (!Number.isFinite(n)) return laag.defaultMm;
+    const stepped = Math.round(n / laag.step) * laag.step;
+    return Math.max(laag.min, Math.min(laag.max, stepped));
+  }
+
+  function asfaltSum() {
+    return ASFALT_LAGEN.reduce(function (sum, laag) {
+      return sum + asfaltLaagMm(laag);
+    }, 0);
+  }
+
+  function syncAsfaltTotal() {
+    ASFALT_LAGEN.forEach(function (laag) {
+      values[laag.key] = asfaltLaagMm(laag);
+    });
+    values.bovenAsfalt = asfaltSum();
+  }
+
+  /** Oude link met één asfaltdikte: verdeel naar dezelfde verhouding als 40/50/90. */
+  function splitAsfaltTotal(total) {
+    total = Math.max(0, Math.round(Number(total) || 0));
+    const base = ASFALT_LAGEN.reduce(function (sum, laag) {
+      return sum + laag.defaultMm;
+    }, 0);
+    if (!total || total === base) {
+      ASFALT_LAGEN.forEach(function (laag) {
+        values[laag.key] = total ? laag.defaultMm : 0;
+      });
+      values.bovenAsfalt = total ? base : 0;
+      return;
+    }
+    let used = 0;
+    ASFALT_LAGEN.forEach(function (laag, i) {
+      if (i === ASFALT_LAGEN.length - 1) {
+        values[laag.key] = Math.max(0, total - used);
+        return;
+      }
+      const stepped = Math.round((total * laag.defaultMm) / base / laag.step) * laag.step;
+      const mm = Math.max(laag.min, Math.min(laag.max, stepped));
+      values[laag.key] = mm;
+      used += mm;
+    });
+    values.bovenAsfalt = asfaltSum();
+  }
+
+  function vulAsfaltDefaults() {
+    ASFALT_LAGEN.forEach(function (laag) {
+      values[laag.key] = laag.defaultMm;
+    });
+    values.bovenAsfalt = asfaltSum();
+  }
+
+  function asfaltFieldDefs() {
+    return ASFALT_LAGEN.map(function (laag) {
+      return {
+        key: laag.key,
+        label: laag.label,
+        unit: "mm",
+        min: laag.min,
+        max: laag.max,
+        step: laag.step,
+      };
+    });
+  }
+
+  function asfaltVeldenHtml() {
+    return (
+      asfaltFieldDefs()
+        .map(function (f) {
+          return fieldHtml(f, false);
+        })
+        .join("") +
+      '<p class="field-note" id="asfalt-totaal-note">Asfalt totaal ' +
+      asfaltSum() +
+      " mm. Elke laag apart.</p>"
+    );
+  }
+
   function bovenLaagMm(laag) {
-    return bovenLaagAan(laag) ? values[laag.dikteKey] || 0 : 0;
+    if (!bovenLaagAan(laag)) return 0;
+    if (laag.id === "asfalt") return asfaltSum();
+    return values[laag.dikteKey] || 0;
   }
 
   function bovenStraatzandActief() {
     return values.bovenToplaag === "klinkers";
+  }
+
+  function bovenBeddingId() {
+    const id = values.bovenBedding;
+    return BOVEN_BEDDING.some(function (b) {
+      return b.id === id;
+    })
+      ? id
+      : BOVEN_BEDDING_DEFAULT;
+  }
+
+  function bovenBeddingKeuze() {
+    return (
+      BOVEN_BEDDING.find(function (b) {
+        return b.id === bovenBeddingId();
+      }) || BOVEN_BEDDING[0]
+    );
+  }
+
+  function bovenBeddingLabel() {
+    return bovenBeddingKeuze().label;
   }
 
   function bovenStraatzandMm() {
@@ -1077,8 +1830,16 @@
     if (!L) return "0";
     const mm = bovenLaagMm(L);
     const sz = bovenStraatzandMm();
+    if (L.id === "asfalt") {
+      const bits = ASFALT_LAGEN.filter(function (laag) {
+        return asfaltLaagMm(laag) > 0;
+      }).map(function (laag) {
+        return laag.label + " " + asfaltLaagMm(laag);
+      });
+      return bits.length ? bits.join(" + ") : "Asfalt 0";
+    }
     if (L.id === "klinkers" && sz > 0) {
-      return L.label + " " + mm + " + straatzand " + sz;
+      return L.label + " " + mm + " + " + bovenBeddingLabel().toLowerCase() + " " + sz;
     }
     return L.label + " " + mm;
   }
@@ -1090,6 +1851,7 @@
   }
 
   function syncBovenDikte() {
+    if (values.bovenToplaag === "asfalt") syncAsfaltTotal();
     values.bovenDikte = bovenTopDikteSum();
   }
 
@@ -1098,7 +1860,7 @@
     let html =
       '<div class="field-section">' +
       '<div class="field-section-title">Kies toplaag</div>' +
-      '<p class="field-note">Één laag: klinkers, asfalt of beton.</p>' +
+      '<p class="field-note">Één laag: bestrating, asfalt of beton. Onder bestrating kies je de onderlaag.</p>' +
       '<div class="boven-keuze" role="radiogroup" aria-label="Toplaag">';
     BOVEN_LAGEN.forEach(function (L) {
       const on = bovenLaagAan(L);
@@ -1118,7 +1880,12 @@
         "</span></label>";
     });
     html += "</div>";
-    if (active) {
+    if (active && active.id === "asfalt") {
+      html +=
+        '<div class="field-section-title">Asfaltlagen</div>' +
+        '<p class="field-note">Deklaag, tussenlaag en onderlaag, elk apart.</p>' +
+        asfaltVeldenHtml();
+    } else if (active) {
       html +=
         '<div class="field boven-laag-field">' +
         fieldHtml(
@@ -1135,13 +1902,33 @@
         "</div>";
     }
     if (active && active.id === "klinkers") {
+      const bed = bovenBeddingKeuze();
       html +=
         '<div class="field boven-laag-field boven-laag-field--sub">' +
-        '<p class="field-note">Laag tussen klinkers en onderconstructie — schaal in profiel beweegt mee (0–200 mm).</p>' +
+        '<div class="field-section-title">Onderlaag</div>' +
+        '<p class="field-note">Tussen bestrating en onderconstructie — straatzand, drainagemortel of split (0–200 mm).</p>' +
+        '<div class="boven-keuze" role="radiogroup" aria-label="Onderlaag bestrating">';
+      BOVEN_BEDDING.forEach(function (b) {
+        const on = b.id === bed.id;
+        html +=
+          '<label class="boven-keuze-opt' +
+          (on ? " boven-keuze-opt--active" : "") +
+          '">' +
+          '<input type="radio" name="boven-bedding" value="' +
+          b.id +
+          '" data-boven-bedding="1"' +
+          (on ? " checked" : "") +
+          " />" +
+          "<span><strong>" +
+          b.label +
+          "</strong></span></label>";
+      });
+      html +=
+        "</div>" +
         fieldHtml(
           {
             key: BOVEN_STRAATZAND.dikteKey,
-            label: "Dikte straatzand (max 20 cm)",
+            label: "Dikte " + bed.label.toLowerCase() + " (max 20 cm)",
             unit: "mm",
             min: BOVEN_STRAATZAND.min,
             max: BOVEN_STRAATZAND.max,
@@ -1162,7 +1949,7 @@
       "<strong>Onderconstructie:</strong> " +
       onderconstructieOmschrijving() +
       " mm<br>" +
-      "<strong>· Fundering:</strong> " +
+      "<strong>· " + tx("Fundering") + ":</strong> " +
       f.dikteTotaal +
       " mm<br>" +
       "<strong>· " + ogvLabel() + ":</strong> " +
@@ -1173,30 +1960,153 @@
     );
   }
 
-  function onderconstructieOverviewHtml() {
+  function laagOverzichtKaart(layerKey) {
     const f = fundMeta(wapeningFund);
-    const p = PRESETS[sheet];
+    const title = layerKey === "fund" ? "Fundering" : ogvLabel();
+    const mm = layerKey === "fund" ? f.dikteTotaal : values.ogvDikte || 0;
+    const on =
+      layerKey === "fund" && isDruklaagActief()
+        ? wapeningFund && lichtHasWapening()
+        : wapeningForLayer(layerKey);
+    const active =
+      selected === layerKey ||
+      (layerKey === "fund" &&
+        (selected === "fund-licht" || selected === "fund-druk" || selected === "onder"));
+    const dikteVelden = (FIELDS[layerKey].dikte || []).filter(function (fld) {
+      if (fld.key === "overhoogte") return false;
+      return !(layerKey === "fund" && isDruklaagActief() && fld.key === "funderingBasis");
+    });
+    const dikteHtml = dikteVelden
+      .map(function (fld) {
+        return fieldHtml(fld, false);
+      })
+      .join("");
     return (
-      '<div class="field-section">' +
-      '<div class="field-section-title">Deellagen</div>' +
-      '<div class="onder-sub-btns">' +
-      '<button type="button" class="layer-jump" data-jump="fund">' +
-      p.labels.fund +
-      " · " +
-      f.dikteTotaal +
-      " mm" +
-      (wapeningFund ? ' <span class="wap-badge">W</span>' : "") +
-      "</button>" +
-      '<button type="button" class="layer-jump" data-jump="ogv">' +
-      p.labels.ogv +
-      " · " +
-      values.ogvDikte +
-      " mm" +
-      (wapeningOgv ? ' <span class="wap-badge">W</span>' : "") +
-      "</button>" +
-      "</div></div>" +
-      laagMateriaalInlineHtml("fund", p.labels.fund) +
-      laagMateriaalInlineHtml("ogv", p.labels.ogv)
+      '<section class="laag-kaart' +
+      (active ? " laag-kaart--active" : "") +
+      '" id="laag-' +
+      layerKey +
+      '" data-laag="' +
+      layerKey +
+      '">' +
+      '<header class="laag-kaart__head">' +
+      "<div><strong>" +
+      '<span class="stap">' +
+      (layerKey === "fund" ? "3" : "2") +
+      "</span>" +
+      title +
+      '</strong> <span class="laag-kaart__mm">' +
+      mm +
+      " mm</span></div>" +
+      wapeningToggleHtml(layerKey, true) +
+      "</header>" +
+      (layerKey === "fund" && isDruklaagActief() ? "" : dikteHtml) +
+      (layerKey === "fund" && !isDruklaagActief() ? overhoogteInvoerHtml() : "") +
+      (layerKey === "fund" && isDruklaagActief() ? fundBimsInvoerHtml(!on) : "") +
+      (layerKey === "fund" && isDruklaagActief()
+        ? ""
+        : laagMateriaalInlineHtml(layerKey, "", { skipEquiv: true })) +
+      (layerKey === "fund" && isDruklaagActief()
+        ? ""
+        : on
+          ? wapeningTypeHtml(layerKey, false, { compact: true, label: "Wapening" })
+          : "") +
+      "</section>"
+    );
+  }
+
+  function bovenOverzichtKaart() {
+    const active = bovenActieveLaag();
+    const mm = values.bovenDikte || 0;
+    let html =
+      '<section class="laag-kaart' +
+      (selected === "boven" ? " laag-kaart--active" : "") +
+      '" id="laag-boven" data-laag="boven">' +
+      '<header class="laag-kaart__head"><div><strong><span class="stap">4</span>Bovenconstructie</strong> <span class="laag-kaart__mm">' +
+      mm +
+      " mm</span></div></header>" +
+      '<label class="materiaal-label" for="boven-toplaag-sel">Toplaag</label>' +
+      '<select id="boven-toplaag-sel" class="materiaal-select" data-boven-toplaag="1">';
+    BOVEN_LAGEN.forEach(function (L) {
+      html +=
+        '<option value="' +
+        L.id +
+        '"' +
+        (bovenLaagAan(L) ? " selected" : "") +
+        ">" +
+        L.label +
+        "</option>";
+    });
+    html += "</select>";
+    if (active && active.id === "asfalt") {
+      html +=
+        '<div class="field-section-title">Asfaltlagen</div>' + asfaltVeldenHtml();
+    } else if (active) {
+      html += fieldHtml(
+        {
+          key: active.dikteKey,
+          label: "Dikte",
+          unit: "mm",
+          min: active.min,
+          max: active.max,
+          step: active.step,
+        },
+        false
+      );
+    }
+    if (active && active.id === "klinkers") {
+      const bed = bovenBeddingKeuze();
+      html += '<label class="materiaal-label" for="boven-bedding-sel">Onder bestrating</label>';
+      html += '<select id="boven-bedding-sel" class="materiaal-select" data-boven-bedding="1">';
+      BOVEN_BEDDING.forEach(function (b) {
+        html +=
+          '<option value="' +
+          b.id +
+          '"' +
+          (b.id === bed.id ? " selected" : "") +
+          ">" +
+          b.label +
+          "</option>";
+      });
+      html += "</select>";
+      html += fieldHtml(
+        {
+          key: BOVEN_STRAATZAND.dikteKey,
+          label: "Dikte " + bed.label.toLowerCase(),
+          unit: "mm",
+          min: BOVEN_STRAATZAND.min,
+          max: BOVEN_STRAATZAND.max,
+          step: BOVEN_STRAATZAND.step,
+        },
+        false
+      );
+    }
+    html += "</section>";
+    return html;
+  }
+
+  function grondOverzichtKaart() {
+    const fld = FIELDS.grond.materiaal[0];
+    return (
+      '<section class="laag-kaart' +
+      (selected === "grond" ? " laag-kaart--active" : "") +
+      '" id="laag-grond" data-laag="grond">' +
+      '<header class="laag-kaart__head"><div><strong><span class="stap">1</span>Ondergrond</strong> <span class="laag-kaart__mm">' +
+      (values.eOndergrond || 0) +
+      " MPa" +
+      (kgM3ForKey("eOndergrond") ? " · " + formatKg(kgM3ForKey("eOndergrond")) + " kg/m³" : "") +
+      "</span></div></header>" +
+      materiaalFieldHtml(fld, true) +
+      "</section>"
+    );
+  }
+
+  function onderconstructieOverviewHtml() {
+    return (
+      '<div class="laag-overzicht">' +
+      laagOverzichtKaart("fund") +
+      laagOverzichtKaart("ogv") +
+      "</div>"
     );
   }
 
@@ -1237,28 +2147,32 @@
     });
   }
 
-  function laagMateriaalInlineHtml(layerKey, label) {
+  function laagMateriaalInlineHtml(layerKey, label, opts) {
+    opts = opts || {};
     const materiaal = FIELDS[layerKey].materiaal;
     if (!materiaal.length) return "";
     const lichtModus = layerKey === "fund" && isDruklaagActief();
+    const title =
+      label == null
+        ? ""
+        : label + (lichtModus ? " · " + activeLichtLabel() : label ? "" : "");
     return (
       '<div class="field-section field-section--' +
       layerKey +
       '-materiaal">' +
-      '<div class="field-section-title">' +
-      label +
-      (lichtModus ? " · Licht vulmateriaal (BIMS/schuimglas)" : " · Materiaal") +
-      "</div>" +
+      (title
+        ? '<div class="field-section-title">' + title + "</div>"
+        : "") +
       (lichtModus
         ? '<p class="field-note">Wijzig hier het licht materiaal, niet de druklaag. Of kies ↩ standaard fundering.</p>'
         : "") +
       materiaal
         .map(function (f) {
-          return materiaalFieldHtml(f);
+          return materiaalFieldHtml(f, !!opts.skipEquiv);
         })
         .join("") +
       (lichtModus ? exitLichtFunderingBtnHtml() : "") +
-      materiaalEquivalentHtml(layerKey) +
+      (opts.skipEquiv ? "" : materiaalEquivalentHtml(layerKey)) +
       "</div>"
     );
   }
@@ -1281,11 +2195,21 @@
         ? '<br><strong class="warn">Kies een toplaag met dikte &gt; 0.</strong>'
         : "";
     const sz = bovenStraatzandMm();
+    const asfaltRegels =
+      L && L.id === "asfalt"
+        ? ASFALT_LAGEN.map(function (laag) {
+            return "<br><strong>" + laag.label + ":</strong> " + asfaltLaagMm(laag) + " mm";
+          }).join("") +
+          "<br><strong>Asfalt totaal:</strong> " +
+          asfaltSum() +
+          " mm"
+        : "";
     return (
       '<div class="panel-extra">' +
       "<strong>Toplaag:</strong> " +
-      (L ? L.label + " · " + bovenLaagMm(L) + " mm" : "geen") +
-      (sz > 0 ? "<br><strong>Straatzand:</strong> " + sz + " mm" : "") +
+      (L && L.id === "asfalt" ? L.label : L ? L.label + " · " + bovenLaagMm(L) + " mm" : "geen") +
+      asfaltRegels +
+      (sz > 0 ? "<br><strong>" + bovenBeddingLabel() + ":</strong> " + sz + " mm" : "") +
       (L && sz > 0
         ? "<br><strong>Bovenconstructie totaal:</strong> " + bovenTopDikteSum() + " mm"
         : "") +
@@ -1315,10 +2239,95 @@
     };
   }
 
+  function formatFactorNl(n) {
+    if (n == null || n === "—") return "—";
+    return String(n).replace(".", ",");
+  }
+
+  /** Duidelijke KPI-kaarten voor print/PDF (geen Excel-kort). */
+  function printKpiCards(r) {
+    const ogvNaam = tx(ogvLabel());
+    const pakketSub = tx(
+      "Bovenconstructie " +
+        r.pk.boven +
+        " mm · fundering " +
+        r.pk.fundering +
+        " mm · " +
+        ogvLabel().toLowerCase() +
+        " " +
+        r.pk.ogv +
+        " mm"
+    );
+    const fundMat = r.fundMateriaal ? "Materiaal: " + r.fundMateriaal + " · " : "";
+    const pct = stijfheidPercentages();
+    const ongM = profielConstructieMpa(false, false);
+    const gewM = profielConstructieMpa(!!r.wapeningFund, !!r.wapeningOgv);
+    const fund = r.wapeningFund
+      ? {
+          value: gewM.fund + " → " + ongM.fund + " MPa",
+          sub:
+            fundMat +
+            "Gewapend → ongewapend · " +
+            pctTekst(pct.fund) +
+            " · " +
+            formatFactorNl(factor(ongM.fund, gewM.fund)) +
+            "× sterker",
+        }
+      : {
+          value: ongM.fund + " MPa",
+          sub: fundMat + "Geen wapening op deze laag",
+        };
+    const ogv = r.wapeningOgv
+      ? {
+          value: gewM.ogv + " → " + ongM.ogv + " MPa",
+          sub:
+            "Gewapend → ongewapend · " +
+            pctTekst(pct.ogv) +
+            " · " +
+            formatFactorNl(factor(ongM.ogv, gewM.ogv)) +
+            "× sterker",
+        }
+      : {
+          value: ongM.ogv + " MPa",
+          sub: "Geen wapening op deze laag",
+        };
+    const w = r.gewicht || gewichtMeta();
+    const gewichtSub = gewichtSubTekst(w);
+    return [
+      { label: tx("Pakketdikte"), value: r.pk.totaal + " mm", sub: pakketSub },
+      {
+        label: tx("Gewichtcompensatie"),
+        value: formatKg(w.pakketKg) + " kg/m²",
+        sub: gewichtSub,
+      },
+      { label: tx("Stijfheid fundering"), value: tx(fund.value), sub: tx(fund.sub) },
+      { label: tx("Stijfheid") + " " + ogvNaam.toLowerCase(), value: tx(ogv.value), sub: tx(ogv.sub) },
+    ];
+  }
+
   function renderPakketSummary() {
     if (!pakketSummaryEl) return;
     const pk = pakketMeta();
+    const w = gewichtMeta();
     const m = (pk.totaal / 1000).toFixed(2).replace(".", ",");
+    const deltaAbs = Math.abs(Math.round(w.delta));
+    const gewichtCls =
+      deltaAbs < 5 ? "kpi-chip kpi-chip--balans" : w.delta < 0 ? "kpi-chip kpi-chip--licht" : "kpi-chip kpi-chip--zwaar";
+    const gewichtTxt = gewichtBalansTekst(w);
+    const maaiveldTxt =
+      (w.bovenMaaiveldMm || 0) > 0
+        ? " · " + tx("maaiveld") + " " + Math.round(w.bovenMaaiveldMm) + " mm"
+        : "";
+    const pct = stijfheidPercentages();
+    const pctDelen = [];
+    if ((pct.fund || 0) !== 0) pctDelen.push("<strong>" + pctTekst(pct.fund) + "</strong>");
+    if ((pct.ogv || 0) !== 0) {
+      pctDelen.push("<strong>" + pctTekst(pct.ogv) + "</strong> " + ogvLabel().toLowerCase());
+    }
+    const pctCls = pctDelen.length ? "kpi-chip kpi-chip--licht" : "kpi-chip";
+    const pctHtml = pctDelen.length
+      ? tx("Gewapend t.o.v. ongewapend") + " " + pctDelen.join(" · ")
+      : tx("Gewapend t.o.v. ongewapend") + " <strong>0%</strong>";
     pakketSummaryEl.innerHTML =
       '<div class="kpi-bar__main">' +
       '<span class="kpi-bar__label">Pakketdikte</span>' +
@@ -1328,17 +2337,38 @@
       m +
       " m)</span></span></div>" +
       '<div class="kpi-bar__chips">' +
-      '<span class="kpi-chip">Boven <strong>' +
+      '<span class="' +
+      pctCls +
+      '">' +
+      pctHtml +
+      "</span>" +
+      '<span class="kpi-chip">' +
+      tx("Boven") +
+      " <strong>" +
       pk.boven +
       " mm</strong></span>" +
-      '<span class="kpi-chip">Fundering <strong>' +
+      '<span class="kpi-chip">' +
+      tx("Fundering") +
+      " <strong>" +
       pk.fundering +
       " mm</strong></span>" +
       '<span class="kpi-chip">' +
-      ogvLabel() +
+      tx(ogvLabel()) +
       ' <strong>' +
       pk.ogv +
       " mm</strong></span>" +
+      '<span class="' +
+      gewichtCls +
+      '" title="' +
+      gewichtSubTekst(w).replace(/"/g, "&quot;") +
+      '">' +
+      tx("Gewicht") +
+      " <strong>" +
+      formatKg(w.pakketKg) +
+      " kg/m²</strong> · " +
+      gewichtTxt +
+      maaiveldTxt +
+      "</span>" +
       "</div>";
   }
 
@@ -1370,15 +2400,16 @@
     return Math.max(0, Number(mm) || 0);
   }
 
-  function flexStyle(mm, placeholder) {
+  function layerPx(mm, placeholder) {
     const w = flexMm(mm);
-    if (w <= 0) {
-      if (placeholder) {
-        return "flex:0 0 auto;min-height:" + MIN_LAYER_VISUAL_PX + "px";
-      }
-      return "flex:0 0 0;min-height:0;display:none";
-    }
-    return "flex:" + w + " 1 0;min-height:0";
+    if (w <= 0) return placeholder ? MIN_LAYER_VISUAL_PX : 0;
+    return Math.max(34, Math.round(w * 0.72));
+  }
+
+  function flexStyle(mm, placeholder) {
+    const px = layerPx(mm, placeholder);
+    if (!px) return "display:none";
+    return "height:" + px + "px;min-height:" + px + "px;flex:0 0 auto";
   }
 
   function materiaalMpa(key) {
@@ -1392,6 +2423,54 @@
   function isFunderingVast() {
     const s = String(values.funderingModus || "").trim().toLowerCase();
     return s === "vast" || s === "< vast";
+  }
+
+  function isBindendMateriaal(key) {
+    const m = materiaalMatch(key);
+    return !!(m && m.bindend);
+  }
+
+  function syncFunderingModusVanMateriaal() {
+    if (isBindendMateriaal("eFundering") || isBindendMateriaal("eDruklaag")) {
+      values.funderingModus = "vast";
+    }
+  }
+
+  function eInFundering() {
+    return isDruklaagActief() ? values.eDruklaag || values.eFundering : values.eFundering;
+  }
+
+  function eWFundering() {
+    const eIn = eInFundering();
+    if (isFunderingVast()) return eIn;
+    const aust = window.austroadsAvg;
+    if (!aust) return eIn;
+    const f = fundMeta(false);
+    const h = f.druklaagAan ? f.drukBasis : f.dikteTotaal;
+    const onder = values.eOgv || values.eOndergrond;
+    return aust(onder, h, eIn);
+  }
+
+  function funderingEwHtml() {
+    const eIn = eInFundering();
+    const eW = eWFundering();
+    const vast = isFunderingVast();
+    const bindend = isBindendMateriaal("eFundering") || isBindendMateriaal("eDruklaag");
+    return (
+      '<div class="field-section">' +
+      '<div class="field-section-title">Ongewapende stijfheid van deze laag</div>' +
+      '<p class="field-note">' +
+      "<strong>In</strong> (catalogus): " +
+      eIn +
+      " MPa · <strong>W</strong> (zonder wapening): " +
+      eW +
+      " MPa. " +
+      (vast
+        ? "Vast: In en W zijn gelijk — het programma rekent met de ingevulde ongewapende stijfheid."
+        : "Vrij: W volgt uit laagdikte en stijfheid van de ondergrond; alleen voor ongebonden materialen.") +
+      (bindend ? " Menggranulaat en andere zelfbindende materialen staan altijd op vast." : "") +
+      "</p></div>"
+    );
   }
 
   /** Equivalente E per deelzone fundering (Excel: E46 / C26 / D46). */
@@ -1439,61 +2518,60 @@
   }
 
   function layerSelected(id) {
-    if (id === "onder") return selected === "onder" || isOnderGroep(selected);
+    if (id === "onder") return selected === "onder";
     if (id === "fund" && (selected === "fund-licht" || selected === "fund-druk")) return true;
     return selected === id;
   }
 
   function druklaagSectionHtml(disabled) {
     if (!isDruklaagActief()) return "";
-    const f = fundMeta(wapeningFund);
-    let html =
-      '<div class="field-section druklaag-section">' +
-      '<div class="field-section-title">Druklaag (automatisch)</div>' +
-      '<p class="field-note">Licht vulmateriaal (BIMS/schuimglas) krijgt Romfix SIF 10. Deze druklaag erboven krijgt geogrid (SIF 5), ' +
-      f.drukStackMm +
-      " mm incl. overhoogte.</p>";
-    FIELDS.fund.druklaag.forEach(function (fld) {
-      html += fieldHtml(fld, disabled);
-    });
-    html += materiaalSectionHtml(
-      [{ key: "eDruklaag", label: "E-modulus druklaag", unit: "MPa", min: 30, max: 600, step: 5 }],
-      null
-    );
-    html +=
-      '<p class="field-note">Alleen de druklaag wijzigen laat BIMS/schuimglas staan. Gebruik ↩ terug voor één funderingslaag.</p>';
-    html += exitLichtFunderingBtnHtml();
-    html += "</div>";
-    return html;
+    return lichtDrukDikteSectionHtml();
   }
 
   function fundLichtPanelHtml() {
     const f = fundMeta(wapeningFund);
     return (
-      '<div class="field-section">' +
-      '<div class="field-section-title">Licht fundering</div>' +
-      '<p class="field-note">Automatisch actief bij BIMS of schuimglas. Deze laag is gewapend met Romfix SIF 10 (E\'Grid + R\'Cel). Kies een granulaat of ↩ standaard fundering om terug te gaan.</p>' +
-      (wapeningFund
-        ? '<p class="field-note"><strong>SIF 10</strong> · MIF ' +
-          formatFactor(values.mifLicht || 0) +
-          " · hele laagdikte " +
-          f.lichtDikte +
-          " mm.</p>"
-        : '<p class="field-note">Wapening staat uit — licht vulmateriaal telt dan ongewapend.</p>') +
-      materiaalSectionHtml(FIELDS.fund.materiaal, null) +
+      lichtDrukDikteSectionHtml() +
+      lichtDrukMateriaalHtml() +
+      lichtDrukWapeningHtml(!wapeningFund) +
       exitLichtFunderingBtnHtml() +
-      '<p class="field-note">Dikte licht laag: <strong>' +
-      f.lichtDikte +
-      " mm</strong> (rest van nominale fundering " +
+      '<p class="field-note">Nominale fundering ' +
       f.basis +
-      " mm na druklaag).</p></div>"
+      " mm = druklaag + schuimglas/puimsteen.</p>"
     );
   }
 
-  function visualLayerInner(name, mm, mpa) {
+  function kgM3ForVisual(id, cls) {
+    if (id === "grond") return 0;
+    if (id === "boven") {
+      const asfalt = ASFALT_LAGEN.find(function (laag) {
+        return laag.cls === cls;
+      });
+      if (asfalt) return asfalt.kgM3 || 0;
+      const laag = BOVEN_LAGEN.find(function (L) {
+        return L.cls === cls;
+      });
+      if (laag) return laag.kgM3 || 0;
+      const bed = BOVEN_BEDDING.find(function (b) {
+        return b.cls === cls;
+      });
+      return bed ? bed.kgM3 || 0 : 0;
+    }
+    if (id === "ogv") return kgM3ForKey("eOgv");
+    if (id === "fund-druk") return kgM3ForKey("eDruklaag");
+    if (id === "fund-licht") return kgM3ForKey("eFundering");
+    if (id === "fund") return kgM3ForKey("eFundering");
+    return 0;
+  }
+
+  function visualLayerInner(name, mm, mpa, kg, kgUnit) {
     const mmHtml =
       mm != null && mm >= 0
         ? '<span class="visual-layer__mm">' + Math.round(mm) + " mm</span>"
+        : "";
+    const kgHtml =
+      kg != null && kg > 0
+        ? '<span class="visual-layer__kg">' + formatKg(kg) + " " + (kgUnit || "kg/m²") + "</span>"
         : "";
     const mpaHtml = mpa ? '<span class="visual-layer__mpa">' + mpa + "</span>" : "";
     return (
@@ -1502,19 +2580,81 @@
       "</span>" +
       '<span class="visual-layer__vals">' +
       mmHtml +
+      kgHtml +
       mpaHtml +
       "</span>"
     );
   }
 
+  function lichtOngewapendMpa(f) {
+    if (isFunderingVast()) return mpaVal(f.eLicht);
+    const st = calcAt(false, wapeningOgv).state;
+    return mpaVal(st.C27 || f.eLicht);
+  }
+
+  function lichtLaagMpaHtml(fundOn, gewState, f) {
+    const ong = lichtOngewapendMpa(f);
+    const versterkt = fundOn && lichtHasWapening() && Number(values.sifLicht) > 0;
+    if (!versterkt) return ong;
+    const gew = mpaVal((gewState && gewState.C27) || f.eLicht);
+    if (gew === ong) return ong;
+    return ong.replace(" MPa", "") + " → " + gew;
+  }
+
+  function drukLaagMpaHtml(fundOn, gewState, f, geogrid) {
+    if (isFunderingVast()) return mpaVal(f.eDruk) + " vul";
+    const st = fundOn && gewState ? gewState : calcAt(false, wapeningOgv).state;
+    if (geogrid && fundOn && st.C26 > 0) {
+      const base = mpaVal(f.eDruk);
+      const gew = mpaVal(st.C26);
+      if (base === gew) return gew;
+      return base.replace(" MPa", "") + " → " + gew;
+    }
+    return mpaVal(st.C25 || st.E46 || f.eDruk);
+  }
+
+  function stapVoor(id) {
+    if (id === "grond") return "1";
+    if (id === "ogv") return "2";
+    if (id === "fund" || id === "fund-licht" || id === "fund-druk") return "3";
+    if (id === "boven") return "4";
+    return "";
+  }
+
+  function stampStappen(id, parts) {
+    const base = stapVoor(id);
+    if (!base || !parts || parts.length < 2) return parts;
+    const needle = base + " · ";
+    return parts.map(function (html, i) {
+      const label = base + String.fromCharCode(97 + (parts.length - 1 - i)) + " · ";
+      const marker = 'visual-layer__name">';
+      const from = html.indexOf(marker);
+      const at = from < 0 ? html.indexOf(needle) : html.indexOf(needle, from);
+      if (at < 0) return html;
+      return html.slice(0, at) + label + html.slice(at + needle.length);
+    });
+  }
+
   function segmentBtn(id, cls, name, mm, mpa, hMm, placeholder) {
+    const stap = stapVoor(id);
+    if (stap) name = stap + " · " + name;
     const h = flexMm(hMm);
     const show = h > 0 || placeholder;
     if (!show) return "";
+    let kgShow = null;
+    let kgUnit = "kg/m²";
+    if (id === "grond") {
+      kgShow = kgM3ForKey("eOndergrond") || null;
+      kgUnit = "kg/m³";
+    } else {
+      const kgM3 = kgM3ForVisual(id, cls);
+      kgShow = mm != null && mm > 0 && kgM3 > 0 ? mmToKgM2(mm, kgM3) : null;
+    }
     const sel = layerSelected(id) ? " visual-layer--selected" : "";
     const title =
       name +
       (mm != null && mm > 0 ? " · " + Math.round(mm) + " mm" : mm === 0 ? " · 0 mm" : "") +
+      (kgShow ? " · " + formatKg(kgShow) + " " + kgUnit : "") +
       (mpa ? " · " + mpa : "");
     return (
       '<button type="button" class="visual-layer visual-layer--' +
@@ -1532,7 +2672,7 @@
       '" title="' +
       title.replace(/"/g, "&quot;") +
       '">' +
-      visualLayerInner(name, mm, mpa) +
+      visualLayerInner(name, mm, mpa, kgShow, kgUnit) +
       "</button>"
     );
   }
@@ -1549,20 +2689,75 @@
       id +
       '" data-mm="' +
       mm +
-      '" style="' +
-      flexStyle(mm, placeholder) +
-      '">' +
+      '" style="flex:0 0 auto;height:auto">' +
       innerHtml +
       "</div>"
     );
   }
 
+  function toonLaagSamen(band, kaartEl) {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const behavior = reduce ? "auto" : "smooth";
+    const profile = document.querySelector(".card--profile");
+    const vh = window.innerHeight;
+    const margin = 24;
+    if (band && profile && profile.scrollHeight > profile.clientHeight + 2) {
+      const br0 = band.getBoundingClientRect();
+      const pr0 = profile.getBoundingClientRect();
+      const pad = 36;
+      let inner = 0;
+      if (br0.bottom > pr0.bottom - pad) inner = br0.bottom - (pr0.bottom - pad);
+      if (br0.top - inner < pr0.top + pad) inner = br0.top - (pr0.top + pad);
+      if (Math.abs(inner) > 1) profile.scrollTop += inner;
+    }
+    const cr = kaartEl ? kaartEl.getBoundingClientRect() : null;
+    const pr = profile ? profile.getBoundingClientRect() : null;
+    const grid = document.querySelector(".work-area__grid");
+    let delta = 0;
+    if (cr) {
+      if (cr.height > vh - margin * 2) delta = cr.top - 88;
+      else if (cr.bottom > vh - margin) delta = cr.bottom - (vh - margin);
+      else if (cr.top < 80) delta = cr.top - 80;
+    }
+    if (pr && pr.top < 8) {
+      const restore = pr.top - 12;
+      const minDelta = cr ? cr.bottom - (vh - margin) : restore;
+      const maxDelta = cr ? cr.top - 72 : restore;
+      delta = Math.min(maxDelta, Math.max(restore, minDelta));
+    }
+    if (profile && pr && grid && 12 + pr.height <= vh - 8) {
+      const room = grid.getBoundingClientRect().bottom - (12 + pr.height) - 8;
+      if (delta > room) delta = Math.max(0, room);
+    }
+    if (Math.abs(delta) > 2) window.scrollBy({ top: delta, behavior: behavior });
+  }
+
   function selectLayer(id) {
     selected = id;
+    markVisited(id);
+    syncOngewapendUi();
     renderPanel();
     renderVisual();
     renderLayerTabs();
     renderTable();
+    applyI18n();
+    const kaart =
+      id === "fund-licht" || id === "fund-druk" || id === "onder" ? "fund" : id;
+    const kaartEl = document.getElementById("laag-" + kaart);
+    const band = document.querySelector('#visual-gew [data-id="' + id + '"]');
+    if (!isMobileViewport()) {
+      requestAnimationFrame(function () {
+        toonLaagSamen(band, kaartEl);
+      });
+    }
+    document.querySelectorAll(".stap-jump").forEach(function (btn) {
+      const stap = btn.getAttribute("data-stap");
+      const on =
+        stap === id ||
+        (stap === "fund" && (id === "fund-licht" || id === "fund-druk" || id === "onder"));
+      btn.classList.toggle("is-on", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
     if (isMobileViewport()) {
       const panel = document.getElementById("panel-input");
       if (panel) {
@@ -1618,18 +2813,30 @@
     });
   }
 
-  function wapeningToggleHtml(layerId) {
-    const on = wapeningForLayer(layerId);
+  function wapeningToggleHtml(layerId, compact) {
+    const on =
+      layerId === "fund" && isDruklaagActief()
+        ? wapeningFund && lichtHasWapening()
+        : wapeningForLayer(layerId);
     return (
-      '<label class="toggle toggle--panel">' +
-      '<input type="checkbox" id="wapening-layer"' +
+      '<label class="toggle' +
+      (compact ? " toggle--mini" : " toggle--panel") +
+      '" title="Wapening">' +
+      '<input type="checkbox" id="wapening-' +
+      layerId +
+      '" data-wap-layer="' +
+      layerId +
+      '"' +
       (on ? " checked" : "") +
       " />" +
       '<span class="toggle-ui"></span>' +
-      "<span><strong>Romfix-wapening</strong> op deze laag</span>" +
-      '<span class="toggle-status">' +
-      (on ? "Aan" : "Uit") +
-      "</span></label>"
+      (compact
+        ? '<span class="toggle-mini-label">Wapening</span>'
+        : "<span><strong>Romfix-wapening</strong> op deze laag</span>" +
+          '<span class="toggle-status">' +
+          (on ? "Aan" : "Uit") +
+          "</span>") +
+      "</label>"
     );
   }
 
@@ -1657,24 +2864,26 @@
       f.oh +
       " overhoogte)<br>" +
       (wapeningFund
-        ? "<strong>Standaard hoogte:</strong> " +
-          f.standaardWap +
-          " mm<br><strong>Werkingsdikte:</strong> " +
-          f.wapDikte +
-          " mm (" +
-          f.standaardWap +
-          " + " +
-          WAP_FUNDERING_WERKING_EXTRA +
-          ", max. " +
-          f.dikteTotaal +
-          " mm fundering)" +
-          (f.wapDikte < f.standaardWap + WAP_FUNDERING_WERKING_EXTRA
-            ? " · <em>begrensd door fundering</em>"
-            : "") +
-          "<br>" +
-          (f.ohOng > 0
-            ? '<strong class="warn">Ongewapend:</strong> ' + f.ohOng + " mm overhoogte<br>"
-            : "") +
+        ? (f.fundSplit || f.lichtSplit
+            ? rcelSplitNoteHtml(f.druklaagAan ? f.lichtSplit : f.fundSplit)
+            : "<strong>Standaard hoogte:</strong> " +
+              f.standaardWap +
+              " mm<br><strong>Werkingsdikte:</strong> " +
+              f.wapDikte +
+              " mm (" +
+              f.standaardWap +
+              " + " +
+              WAP_FUNDERING_WERKING_EXTRA +
+              ", max. " +
+              f.basis +
+              " mm onderlaag)" +
+              (f.wapDikte < f.standaardWap + WAP_FUNDERING_WERKING_EXTRA
+                ? " · <em>begrensd tot de onderlaag</em>"
+                : "") +
+              "<br>" +
+              (f.oh > 0
+                ? '<strong class="warn">Overhoogte ongewapend:</strong> ' + f.oh + " mm<br>"
+                : "")) +
           "<strong>E:</strong> " +
           ong.output.D13 +
           " → " +
@@ -1736,22 +2945,17 @@
   function materiaalMatch(key, listOverride) {
     const list = listOverride || materiaalListForKey(key);
     const v = Number(values[key]);
-    const chosen = normalizeLichtFunderingLabel(materiaalKeuze[key]) || materiaalKeuze[key];
+    const rawChosen = materiaalKeuze[key];
+    const chosen = normalizeLichtFunderingLabel(rawChosen) || rawChosen;
     if (chosen) {
-      const exact = list.find(function (m) {
-        return m.label === chosen && m.mpa === v;
+      const byLabel = list.find(function (m) {
+        return m.label === chosen || normalizeLichtFunderingLabel(m.label) === chosen;
       });
-      if (exact) return exact;
+      if (byLabel) return byLabel;
     }
     const byMpa = list.filter(function (m) {
       return m.mpa === v;
     });
-    if (chosen) {
-      const prefer = byMpa.find(function (m) {
-        return m.label === chosen || normalizeLichtFunderingLabel(m.label) === chosen;
-      });
-      if (prefer) return prefer;
-    }
     return byMpa[0] || null;
   }
 
@@ -1794,13 +2998,39 @@
   }
 
   function materiaalSelectOptions(key) {
-    const list = materiaalListForKey(key);
+    const list = materiaalListForKey(key).slice();
+    const betonAt = list.findIndex(function (m) {
+      return m.label === "Betongranulaat";
+    });
+    const hydrAt = list.findIndex(function (m) {
+      return m.label === "Hydraulisch menggranulaat";
+    });
+    if (betonAt > -1 && hydrAt > -1 && betonAt !== hydrAt + 1) {
+      const item = list.splice(betonAt, 1)[0];
+      const after = list.findIndex(function (m) {
+        return m.label === "Hydraulisch menggranulaat";
+      });
+      list.splice(after + 1, 0, item);
+    }
+    const argexAt = list.findIndex(function (m) {
+      return m.label === "Argex";
+    });
+    const schuimAt = list.findIndex(function (m) {
+      return m.label === "Schuimglas";
+    });
+    if (argexAt > -1 && schuimAt > -1 && argexAt !== schuimAt + 1) {
+      const argex = list.splice(argexAt, 1)[0];
+      const afterSchuim = list.findIndex(function (m) {
+        return m.label === "Schuimglas";
+      });
+      list.splice(afterSchuim + 1, 0, argex);
+    }
     const v = values[key];
     const match = materiaalMatch(key);
     let html = '<option value="">— Kies materiaal —</option>';
     if (key === "eFundering" && isDruklaagActief()) {
       html +=
-        '<option value="__exit__|Standaard fundering">↩ Standaard fundering (geen BIMS/schuimglas)</option>';
+        '<option value="__exit__|Standaard fundering">↩ Standaard fundering (geen puimsteen/schuimglas)</option>';
     }
     list.forEach(function (m) {
       html +=
@@ -1812,7 +3042,9 @@
         m.label +
         " (" +
         m.mpa +
-        " MPa)</option>";
+        " MPa" +
+        (m.kgM3 ? " · " + formatKg(m.kgM3) + " kg/m³" : "") +
+        ")</option>";
     });
     if (!match) {
       html +=
@@ -1825,7 +3057,7 @@
     return html;
   }
 
-  function materiaalFieldHtml(f) {
+  function materiaalFieldHtml(f, skipSlider) {
     return (
       '<div class="field materiaal-field">' +
       '<label class="materiaal-label" for="mat-' +
@@ -1838,7 +3070,7 @@
       '">' +
       materiaalSelectOptions(f.key) +
       "</select>" +
-      fieldHtml(f, false) +
+      (skipSlider ? "" : fieldHtml(f, false)) +
       "</div>"
     );
   }
@@ -1974,6 +3206,52 @@
     return html;
   }
 
+  let rangeFocusKey = "";
+
+  function rememberRangeFocus(el) {
+    if (el && el.dataset && el.dataset.key) rangeFocusKey = el.dataset.key;
+  }
+
+  function restoreRangeFocus() {
+    if (!rangeFocusKey) return;
+    const active = document.activeElement;
+    if (active && active.matches && active.matches('input[type="range"]')) return;
+    if (active && active !== document.body && active !== document.documentElement) {
+      const tag = active.tagName;
+      if (tag === "SELECT" || tag === "TEXTAREA") return;
+      if (tag === "INPUT" && active.type !== "range") return;
+      if (active.isContentEditable) return;
+    }
+    const el = document.getElementById("f-" + rangeFocusKey);
+    if (el && !el.disabled) el.focus({ preventScroll: true });
+  }
+
+  function nudgeRangeInput(el, key) {
+    if (!el || el.disabled) return false;
+    const min = Number(el.min);
+    const max = Number(el.max);
+    const step = Number(el.step);
+    const useStep = step > 0 && isFinite(step) ? step : 1;
+    let v = Number(el.value);
+    if (!isFinite(v)) v = isFinite(min) ? min : 0;
+    if (key === "ArrowLeft" || key === "ArrowDown") v -= useStep;
+    else if (key === "ArrowRight" || key === "ArrowUp") v += useStep;
+    else if (key === "PageDown") v -= useStep * 10;
+    else if (key === "PageUp") v += useStep * 10;
+    else if (key === "Home") v = min;
+    else if (key === "End") v = max;
+    else return false;
+    if (isFinite(min) && useStep > 0) {
+      v = min + Math.round((v - min) / useStep) * useStep;
+    }
+    if (isFinite(min)) v = Math.max(min, v);
+    if (isFinite(max)) v = Math.min(max, v);
+    const next = String(v);
+    if (el.value === next) return true;
+    el.value = next;
+    return true;
+  }
+
   function fieldHtml(f, disabled) {
     if (f.choices && f.choices.length) {
       return choiceFieldHtml(f, disabled);
@@ -2011,8 +3289,10 @@
       v +
       '" />' +
       (f.key === "overhoogte"
-        ? '<p class="field-note">Verhoogt de totale funderingdikte (max. werkingsdikte wapening).</p>'
-        : "") +
+        ? '<p class="field-note">Telt mee in de dikte. Wapening kies je op de onderlaag, niet op de overhoogte.</p>'
+        : f.key === "wapFundering" || f.key === "wapOgv"
+          ? '<p class="field-note">Standaard 300 mm — de MIF-waarden zijn bepaald over 300 mm funderingsmateriaal.</p>'
+          : "") +
       "</div>"
     );
   }
@@ -2035,6 +3315,7 @@
     if (layerId === "boven") {
       const L = bovenActieveLaag();
       if (!L) return [];
+      if (L.id === "asfalt") return asfaltFieldDefs();
       const fields = [
         {
           key: L.dikteKey,
@@ -2048,7 +3329,7 @@
       if (L.id === "klinkers") {
         fields.push({
           key: BOVEN_STRAATZAND.dikteKey,
-          label: BOVEN_STRAATZAND.label,
+          label: bovenBeddingLabel(),
           unit: "mm",
           min: BOVEN_STRAATZAND.min,
           max: BOVEN_STRAATZAND.max,
@@ -2068,21 +3349,55 @@
     });
     if (!field) return;
     const wasDruklaag = key === "eFundering" ? !!values.druklaagAan : false;
-    values[key] = field.choices
+    const parsed = field.choices
       ? Number(raw)
       : field.step < 1
         ? parseFloat(raw)
         : Number(raw);
+    if (key === "lichtDikte") {
+      const licht = Math.max(LICHT_MIN_MM, Math.min(LICHT_MAX_MM, parsed));
+      const druk = Math.max(
+        DRUKLAAG_MIN_MM,
+        Math.min(DRUKLAAG_MAX_MM, Number(values.druklaagDikte) || DRUKLAAG_DEFAULT_MM)
+      );
+      values.lichtDikte = licht;
+      values.druklaagDikte = druk;
+      values.funderingBasis = Math.min(FUNDERING_BASIS_MAX_MM, licht + druk);
+    } else {
+      values[key] = parsed;
+    }
     if (key === "wapFundering") {
-      values.wapFundering = normalizeWapFundering(values.wapFundering);
+      values.wapFundering = Math.max(50, Math.min(400, Number(values.wapFundering) || 0));
+    }
+    if (key === "rcelHoogte") {
+      const h = Number(values.rcelHoogte);
+      values.rcelHoogte = RCEL_HOOGTE_KEUZES.indexOf(h) >= 0 ? h : RCEL_HOOGTE_DEFAULT;
+      if (growOnderlaagVoorCel(values.rcelHoogte)) {
+        invalidateCalcCache();
+        render();
+        return;
+      }
     }
     if (key.indexOf("boven") === 0 && key.indexOf("Aan") < 0) {
       syncBovenDikte();
     }
-    const valEl = document.getElementById("v-" + key);
-    const slider = document.getElementById("f-" + key);
-    if (valEl) valEl.textContent = values[key] + " " + field.unit;
-    if (slider) slider.value = values[key];
+    if (key.indexOf("bovenAsfalt") === 0 || (key.indexOf("boven") === 0 && key.indexOf("Aan") < 0)) {
+      const note = document.getElementById("asfalt-totaal-note");
+      if (note) note.textContent = "Asfalt totaal " + asfaltSum() + " mm. Elke laag apart.";
+      document.querySelectorAll("#laag-boven .laag-kaart__mm").forEach(function (el) {
+        el.textContent = (values.bovenDikte || 0) + " mm";
+      });
+    }
+    if (key === "funderingBasis" || key === "druklaagDikte" || key === "lichtDikte") {
+      clampDruklaagDiktes();
+      syncDrukLichtSliderDom();
+    }
+    if (!field.choices) {
+      const valEl = document.getElementById("v-" + key);
+      const slider = document.getElementById("f-" + key);
+      if (valEl) valEl.textContent = values[key] + " " + field.unit;
+      if (slider) slider.value = values[key];
+    }
     if (field.choices) {
       const choiceRoot = expertMode ? expertDashboardEl : panelFields;
       if (choiceRoot) {
@@ -2093,16 +3408,17 @@
         });
       }
     }
+    if (key === "eFundering" || key === "eDruklaag") {
+      syncFunderingModusVanMateriaal();
+    }
     if (key === "eFundering") {
       syncDruklaagFromFundering();
-      if (!expertMode) {
+      if (!expertMode && !!values.druklaagAan !== wasDruklaag) {
         invalidateCalcCache();
         render();
+        restoreRangeFocus();
         return;
       }
-    }
-    if (key === "funderingBasis" || key === "druklaagDikte") {
-      clampDruklaagDiktes();
     }
     if (key === "ogvDikte" && wapeningOgv) {
       values.wapOgv = values.ogvDikte;
@@ -2122,14 +3438,10 @@
     invalidateCalcCache();
     if (expertMode) {
       refreshExpertLive();
+      applyI18n();
       return;
     }
-    if (
-      selected === "fund" &&
-      (key === "wapFundering" || key === "funderingBasis" || key === "overhoogte")
-    ) {
-      renderPanel();
-    } else if (selected === "fund") {
+    if (selected === "fund" || selected === "fund-licht" || selected === "fund-druk") {
       const extra = panelFields.querySelector(".panel-extra");
       if (extra) extra.outerHTML = fundPanelExtra();
     }
@@ -2146,6 +3458,11 @@
       if (extra) extra.outerHTML = onderPanelExtra();
     }
     if (key === "eOndergrond") {
+      document.querySelectorAll("#laag-grond .laag-kaart__mm").forEach(function (el) {
+        const kg = kgM3ForKey("eOndergrond");
+        el.textContent =
+          (values.eOndergrond || 0) + " MPa" + (kg ? " · " + formatKg(kg) + " kg/m³" : "");
+      });
       const extraGrond = panelFields.querySelector(".panel-extra");
       if (extraGrond) {
         if (selected === "grond") extraGrond.outerHTML = grondPanelExtra();
@@ -2154,117 +3471,51 @@
       }
     }
     syncMateriaalEquivalentNotes();
+    if (key === "eFundering" || key === "eOgv") syncWapeningOptionLabels();
     renderPakketSummary();
     renderVisual();
     renderTable();
     renderLayerTabs();
+    applyI18n();
   }
 
   function renderPanel() {
-    const panelId = selected;
-    const meta = panelLayerMeta(panelId);
-    const groups = FIELDS[panelId] || (isFundSubLayer(panelId) ? FIELDS.fund : FIELDS.onder);
-    const wapLayer = panelId === "fund-druk" ? "fund" : panelId;
-    const layerWap = wapeningForLayer(wapLayer);
-    const hasWap =
-      panelId === "fund-druk" || panelId === "ogv" || (panelId === "fund" && !isDruklaagActief());
+    panelTitle.textContent = "Lagen";
+    panelHint.textContent = "";
 
-    panelTitle.textContent = meta ? meta.label : "Laag";
-    panelHint.textContent = meta ? meta.hint : "";
-
-    let html = panelId === "boven" ? bovenLagenSectionHtml() : "";
-    if (panelId === "onder") {
-      html += onderconstructieOverviewHtml();
-    } else if (panelId === "fund-licht") {
-      html += fundLichtPanelHtml();
-    } else if (panelId === "fund-druk") {
-      html += druklaagSectionHtml(false);
-      html += '<div class="field-section"><div class="field-section-title">Wapening (druklaag)</div>';
-      html += wapeningToggleHtml("fund");
-      html += wapeningTypeHtml("fund", !layerWap);
-      html += mifDisplayHtml("fund", !layerWap);
-      if (!layerWap) {
-        html += '<p class="field-note">Wapening staat uit — druklaag telt dan als ongewapend granulaat, licht vulmateriaal zonder SIF 10.</p>';
-      } else {
-        html +=
-          '<p class="field-note">Geogrid over de hele druklaag (' +
-          fundMeta(true).drukStackMm +
-          " mm). Geen geocel-hoogte op deze laag.</p>";
-      }
-      html += "</div>";
-    } else if (groups && groups.dikte && groups.dikte.length) {
-      html += sectionHtml("Dikte", groups.dikte, false);
-      if (panelId === "fund" && isDruklaagActief()) {
-        html += druklaagSectionHtml(false);
-        html +=
-          '<p class="field-note">Klik <strong>Druklaag</strong> of <strong>Licht fundering</strong> in het profiel voor wapening / materiaal per deel.</p>';
-      }
-    }
-    if (
-      groups &&
-      groups.materiaal &&
-      groups.materiaal.length &&
-      panelId !== "fund-licht" &&
-      panelId !== "fund-druk"
-    ) {
-      const matLayer =
-        panelId === "fund" || panelId === "ogv" || panelId === "grond" ? panelId : null;
-      const lichtModus = panelId === "fund" && isDruklaagActief();
-      const matLabel = lichtModus ? "Licht vulmateriaal (BIMS/schuimglas)" : "Materiaal";
-      html +=
-        '<div class="field-section"><div class="field-section-title">' +
-        matLabel +
-        "</div>" +
-        (lichtModus
-          ? '<p class="field-note">Druklaag-materiaal wijzigen laat BIMS/schuimglas in het profiel staan.</p>'
-          : "") +
-        groups.materiaal
-          .map(function (f) {
-            return materiaalFieldHtml(f);
-          })
-          .join("") +
-        (lichtModus ? exitLichtFunderingBtnHtml() : "") +
-        (matLayer ? materiaalEquivalentHtml(matLayer) : "") +
-        "</div>";
-    }
-    if (hasWap && panelId !== "fund-druk") {
-      html += '<div class="field-section"><div class="field-section-title">Wapening</div>';
-      html += wapeningToggleHtml(wapLayer);
-      html += wapeningTypeHtml(wapLayer, !layerWap);
-      wapeningFieldsExceptSif(wapLayer).forEach(function (f) {
-        html += fieldHtml(f, !layerWap);
-      });
-      html += mifDisplayHtml(wapLayer, !layerWap);
-      if (!layerWap) {
-        html += '<p class="field-note">Wapening staat uit — dikte wordt pas meegenomen als je wapening aanzet.</p>';
-      }
-      html += "</div>";
-    }
-    html +=
-      panelId === "boven"
-        ? bovenPanelExtra()
-        : panelId === "onder"
-          ? onderPanelExtra()
-          : panelId === "fund" || panelId === "fund-druk"
-            ? fundPanelExtra()
-            : panelId === "fund-licht"
-              ? '<div class="panel-extra">' + pakketPanelLine() + "</div>"
-              : panelId === "ogv"
-                ? ogvPanelExtra()
-                : panelId === "grond"
-                  ? grondPanelExtra()
-                  : "";
+    const html =
+      '<div class="laag-overzicht">' +
+      bovenOverzichtKaart() +
+      laagOverzichtKaart("fund") +
+      laagOverzichtKaart("ogv") +
+      grondOverzichtKaart() +
+      "</div>";
 
     panelFields.innerHTML = html;
 
-    const wapEl = document.getElementById("wapening-layer");
-    if (wapEl) {
-      wapEl.addEventListener("change", function () {
-        if (selected === "fund" || selected === "fund-druk") wapeningFund = wapEl.checked;
-        if (selected === "ogv") wapeningOgv = wapEl.checked;
+    panelFields.querySelectorAll("[data-add-overhoogte]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        values.overhoogte = 50;
+        invalidateCalcCache();
         render();
       });
-    }
+    });
+
+    panelFields.querySelectorAll("[data-wap-layer]").forEach(function (el) {
+      el.addEventListener("change", function () {
+        const layer = el.dataset.wapLayer;
+        if (layer === "fund" || layer === "fund-druk") {
+          wapeningFund = el.checked;
+          if (isDruklaagActief() && wapeningFund && !lichtHasWapening()) {
+            values.wapTypeLicht = WAPENING_LICHT_DEFAULT;
+            const t = wapeningTypeById(values.wapTypeLicht);
+            if (t) values.sifLicht = t.sif;
+          }
+        }
+        if (layer === "ogv") wapeningOgv = el.checked;
+        render();
+      });
+    });
 
     const constructieEl = document.getElementById("constructie-type");
     if (constructieEl) {
@@ -2293,28 +3544,31 @@
     panelFields.querySelectorAll("[data-boven-toplaag]").forEach(function (el) {
       el.addEventListener("change", function () {
         values.bovenToplaag = el.value;
+        if (el.value === "klinkers") {
+          if (!values.bovenBedding) values.bovenBedding = BOVEN_BEDDING_DEFAULT;
+          if (!(values.bovenStraatzand > 0)) values.bovenStraatzand = BOVEN_STRAATZAND.defaultMm;
+        }
+        if (el.value === "asfalt" && asfaltSum() <= 0) vulAsfaltDefaults();
         syncBovenDikte();
         render();
       });
     });
 
-    const fields =
-      selected === "onder"
-        ? FIELDS.fund.materiaal.concat(FIELDS.ogv.materiaal)
-        : selected === "fund-licht"
-          ? FIELDS.fund.materiaal
-          : selected === "fund-druk"
-            ? FIELDS.fund.druklaag.concat([
-                { key: "eDruklaag", label: "E-modulus druklaag", unit: "MPa", min: 30, max: 600, step: 5 },
-              ]).concat(FIELDS.fund.wapening)
-            : selected === "fund" ||
-                selected === "ogv" ||
-                selected === "boven" ||
-                selected === "grond"
-              ? allFieldsForLayer(selected).concat(
-                  selected === "fund" && isDruklaagActief() ? FIELDS.fund.druklaag : []
-                )
-              : [];
+    panelFields.querySelectorAll("[data-boven-bedding]").forEach(function (el) {
+      el.addEventListener("change", function () {
+        values.bovenBedding = el.value;
+        render();
+      });
+    });
+
+    let fields = allFieldsForLayer("boven")
+      .concat(FIELDS.fund.dikte)
+      .concat(FIELDS.fund.materiaal)
+      .concat(FIELDS.ogv.dikte)
+      .concat(FIELDS.ogv.materiaal)
+      .concat(FIELDS.grond.materiaal)
+      .concat(isDruklaagActief() ? FIELDS.fund.druklaag.concat([lichtDikteField()]) : []);
+    fields = fields.concat([rcelHoogteField()]);
 
     panelFields.querySelectorAll("[data-wap-keuze]").forEach(function (el) {
       el.addEventListener("change", function () {
@@ -2330,6 +3584,19 @@
       });
     });
 
+    panelFields.querySelectorAll(".expert-modus-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (btn.disabled) return;
+        if (isBindendMateriaal("eFundering") || isBindendMateriaal("eDruklaag")) {
+          values.funderingModus = "vast";
+        } else {
+          values.funderingModus = btn.dataset.modus === "vast" ? "vast" : "vrij";
+        }
+        invalidateCalcCache();
+        render();
+      });
+    });
+
     panelFields.querySelectorAll(".materiaal-select").forEach(function (sel) {
       sel.addEventListener("change", function () {
         if (!sel.dataset.key || !sel.value) return;
@@ -2337,11 +3604,84 @@
       });
     });
 
-    panelFields.querySelectorAll("input[type=range]:not([disabled])").forEach(function (el) {
+    panelFields.querySelectorAll("input[type=range]").forEach(function (el) {
+      el.addEventListener("focus", function () {
+        rememberRangeFocus(el);
+      });
       el.addEventListener("input", function () {
+        if (el.disabled || !el.dataset.key) return;
         applyFieldValue(el.dataset.key, el.value, fields);
       });
+      el.addEventListener("keydown", function (e) {
+        if (el.disabled) return;
+        if (!nudgeRangeInput(el, e.key)) return;
+        e.preventDefault();
+        if (el.dataset.key) applyFieldValue(el.dataset.key, el.value, fields);
+      });
     });
+  }
+
+  function fundRcelGeometrie(f) {
+    if (f.fundSplit) return f.fundSplit;
+    if (!f.druklaagAan && typeHasRcel(values.wapTypeFund)) return cellFillSplit(f.basis);
+    return null;
+  }
+
+  function fundBandNaam(basisNaam) {
+    const mat = materiaalLabel("eFundering");
+    return mat ? basisNaam + " · " + mat : basisNaam;
+  }
+
+  function fundRolNaam(rol) {
+    const mat = materiaalLabel("eFundering");
+    return "Onderlaag" + (mat ? " · " + mat : "") + " · " + rol;
+  }
+
+  /** Zelfde laagindeling als bij Bims: cel, gewapende overhoogte, ongewapende overhoogte. */
+  function fundProfielBanden(f, fundOn) {
+    if (!fundOn) {
+      return [
+        {
+          name: fundBandNaam(PRESETS[sheet].labels.fund),
+          mm: f.dikteTotaal,
+          gewap: false,
+          kind: "all",
+        },
+      ];
+    }
+    const bands = [];
+    if (f.ohOng > 0) {
+      bands.push({ name: fundRolNaam("ongewapende overhoogte"), mm: f.ohOng, gewap: false, kind: "ong" });
+    }
+    if (f.ohGew > 0) {
+      bands.push({ name: fundRolNaam("gewapende overhoogte"), mm: f.ohGew, gewap: true, kind: "vul" });
+    }
+    const geo = fundRcelGeometrie(f);
+    if (geo && geo.cell > 0) {
+      if (geo.fillOng > 0) {
+        bands.push({ name: fundRolNaam("ongewapende overhoogte"), mm: geo.fillOng, gewap: false, kind: "ong" });
+      }
+      if (geo.fillGew > 0) {
+        bands.push({ name: fundRolNaam("gewapende overhoogte"), mm: geo.fillGew, gewap: true, kind: "vul" });
+      }
+      bands.push({ name: fundRolNaam("gewapende celhoogte"), mm: geo.cell, gewap: true, kind: "cel" });
+      return bands;
+    }
+    const wap = Math.min(f.wapDikte || 0, f.basis || 0);
+    const ong = Math.max(0, (f.basis || 0) - wap);
+    const type = wapeningTypeById(values.wapTypeFund);
+    const rol = typeHasRcel(values.wapTypeFund)
+      ? "gewapende celhoogte"
+      : type
+        ? wapeningOptionLabel(type, false, "fund")
+        : "gewapend";
+    if (ong > 0) {
+      bands.push({ name: fundRolNaam("ongewapende overhoogte"), mm: ong, gewap: false, kind: "ong" });
+    }
+    if (wap > 0) {
+      bands.push({ name: fundRolNaam(rol), mm: wap, gewap: true, kind: "cel" });
+    }
+    return bands;
   }
 
   function renderFundVisual(fundWap, ogvWap) {
@@ -2362,38 +3702,79 @@
       const lichtLabel =
         (lichtMat && lichtMat.label) ||
         normalizeLichtFunderingLabel(materiaalKeuze.eFundering) ||
-        "Licht fundering";
-      const eqDruk = fundOn
-        ? mpaVal(gew.state.C26 || f.eDruk)
-        : mpaVal(f.eDruk);
-
-      if (f.drukStackMm > 0) {
+        "Puimsteen";
+      const drukMat = materiaalMatch("eDruklaag", MATERIAAL_DRUKLAAG);
+      const drukMatNaam = (drukMat && drukMat.label) || "Steenslag";
+      const lichtType = wapeningTypeById(lichtWapeningTypeId());
+      const lichtWapNaam =
+        fundOn && lichtHasWapening() && lichtType
+          ? wapeningOptionLabel(lichtType, false, "fund-licht")
+          : "";
+      if (f.ohOng > 0) {
+        parts.push(
+          segmentBtn(
+            "fund-druk",
+            "groen-licht",
+            "ongewapende overhoogte · " + drukMatNaam,
+            f.ohOng,
+            drukLaagMpaHtml(fundOn, gew.state, f),
+            f.ohOng
+          )
+        );
+      }
+      if (f.ohGew > 0) {
+        parts.push(
+          segmentBtn(
+            "fund-druk",
+            "gewap",
+            "gewapende overhoogte · " + drukMatNaam,
+            f.ohGew,
+            drukLaagMpaHtml(fundOn, gew.state, f),
+            f.ohGew
+          )
+        );
+      }
+      if (f.drukBasis > 0) {
         parts.push(
           segmentBtn(
             "fund-druk",
             "druk",
-            fundOn ? "Druklaag · geogrid" : "Druklaag",
-            f.drukStackMm,
-            eqDruk,
-            f.drukStackMm,
+            "Druklaag · " + drukMatNaam + (fundOn ? " · Geogrid (E'Grid 30/30)" : ""),
+            f.drukBasis,
+            drukLaagMpaHtml(fundOn, gew.state, f, fundOn),
+            f.drukBasis,
             placeholder
           )
         );
       }
       if (f.lichtDikte > 0) {
-        const lichtEq = fundOn
-          ? mpaVal(gew.state.C27 || f.eLicht)
-          : mpaVal(f.eLicht);
-        parts.push(
-          segmentBtn(
+        const lichtAan = fundOn && lichtHasWapening();
+        const split =
+          lichtAan && f.lichtSplit && f.lichtSplit.fill >= 100 ? f.lichtSplit : null;
+        if (split) {
+          appendCellSplitParts(
+            parts,
             "fund-licht",
-            "licht",
-            lichtLabel,
-            f.lichtDikte,
-            lichtEq,
-            f.lichtDikte
-          )
-        );
+            split,
+            function (b) {
+              if (b.kind === "ong") return lichtOngewapendMpa(f);
+              return lichtLaagMpaHtml(fundOn, gew.state, f);
+            },
+            { ong: "groen-licht", vul: "gewap", cel: "gewap" },
+            "Onderlaag · " + lichtLabel
+          );
+        } else {
+          parts.push(
+            segmentBtn(
+              "fund-licht",
+              lichtAan ? "gewap" : "licht",
+              "Onderlaag · " + lichtLabel + (lichtWapNaam ? " · " + lichtWapNaam : ""),
+              f.lichtDikte,
+              lichtLaagMpaHtml(fundOn, gew.state, f),
+              f.lichtDikte
+            )
+          );
+        }
       }
       if (!parts.length) {
         parts.push(
@@ -2402,110 +3783,41 @@
             "druk",
             "Druklaag",
             f.dikteTotaal,
-            eqDruk,
+            drukLaagMpaHtml(fundOn, gew.state, f),
             f.dikteTotaal,
             placeholder
           )
         );
       }
-      return visualStack("fund", f.dikteTotaal, parts.join(""), placeholder);
+      return visualStack("fund", f.dikteTotaal, stampStappen("fund", parts).join(""), placeholder);
     }
 
     const zoneId = "fund";
-    const zonePrefix = p.labels.fund;
-
-    if (!fundOn) {
-      parts.push(
-        segmentBtn(zoneId, "fund", p.labels.fund, f.dikteTotaal, eqOng, f.dikteTotaal, placeholder)
-      );
-      return visualStack("fund", f.dikteTotaal, parts.join(""), placeholder);
-    }
-
-    if (f.ohOng > 0) {
+    const banden = fundProfielBanden(f, fundOn);
+    banden.forEach(function (b) {
+      const mpa = !fundOn
+        ? eqOng
+        : b.kind === "ong"
+          ? fundSegmentEquivMpa(st, "ongewTop") || fundOhOngEquivMpa(st, f)
+          : fundSegmentEquivMpa(st, "gewap") || eqGew;
+      const cls = b.kind === "ong" ? "groen-licht" : b.gewap ? "gewap" : "fund";
+      parts.push(segmentBtn(zoneId, cls, b.name, b.mm, mpa, b.mm, placeholder && b.kind === "cel"));
+    });
+    if (!parts.length) {
       parts.push(
         segmentBtn(
           zoneId,
-          "ongew",
-          zonePrefix + " · oh ongew.",
-          f.ohOng,
-          fundOhOngEquivMpa(st, f),
-          f.ohOng
+          fundOn ? "gewap" : "fund",
+          fundBandNaam(fundOn ? "Fundering" : p.labels.fund),
+          f.dikteTotaal,
+          fundOn ? eqGew : eqOng,
+          f.dikteTotaal,
+          placeholder
         )
       );
     }
 
-    const restOngHoog = Math.max(0, (st.B25 || 0) - f.ohOng);
-    if (restOngHoog > 0) {
-      parts.push(
-        segmentBtn(
-          zoneId,
-          "ongew",
-          zonePrefix + " · ongew. boven",
-          Math.round(restOngHoog),
-          fundSegmentEquivMpa(st, "ongewTop"),
-          restOngHoog
-        )
-      );
-    }
-
-    if (f.ohGew > 0 && (st.B26 || 0) > 0) {
-      parts.push(
-        segmentBtn(
-          zoneId,
-          "gewap",
-          zonePrefix + " · oh gew.",
-          f.ohGew,
-          fundSegmentEquivMpa(st, "gewap"),
-          f.ohGew
-        )
-      );
-    }
-
-    const basisGew = Math.max(0, (st.B26 || 0) - f.ohGew);
-    if (basisGew > 0) {
-      parts.push(
-        segmentBtn(
-          zoneId,
-          "gewap",
-          zonePrefix + " · gewapend",
-          Math.round(basisGew),
-          fundSegmentEquivMpa(st, "gewap"),
-          basisGew
-        )
-      );
-    } else if ((st.B26 || 0) > 0 && f.ohGew === 0) {
-      parts.push(
-        segmentBtn(
-          zoneId,
-          "gewap",
-          zonePrefix,
-          Math.round(st.B26),
-          fundSegmentEquivMpa(st, "gewap"),
-          st.B26
-        )
-      );
-    }
-
-    if ((st.B27 || 0) > 0) {
-      parts.push(
-        segmentBtn(
-          zoneId,
-          "ongew",
-          zonePrefix + " · ongew. onder",
-          Math.round(st.B27),
-          fundSegmentEquivMpa(st, "ongewOnder"),
-          st.B27
-        )
-      );
-    }
-
-    if (parts.length === 0) {
-      parts.push(
-        segmentBtn(zoneId, "gewap", zonePrefix, f.dikteTotaal, eqGew, f.dikteTotaal, placeholder)
-      );
-    }
-
-    return visualStack("fund", f.dikteTotaal, parts.join(""), placeholder);
+    return visualStack("fund", f.dikteTotaal, stampStappen("fund", parts).join(""), placeholder);
   }
 
   function laagMateriaalNaam(key) {
@@ -2515,7 +3827,7 @@
   function renderOgvVisual(fundWap, ogvWap) {
     const fundOn = fundWap !== undefined ? fundWap : wapeningFund;
     const ogvOn = ogvWap !== undefined ? ogvWap : wapeningOgv;
-    const mat = laagMateriaalNaam("eOgv");
+    const mat = materiaalLabel("eOgv");
     const label = ogvLabel() + (mat ? " · " + mat : "");
     const ong = calcAt(fundOn, false);
     const gew = calcAt(fundOn, true);
@@ -2528,53 +3840,72 @@
 
     if (!ogvOn) {
       parts.push(segmentBtn("ogv", "ogv", label, ogvMm, eqOng, ogvMm, placeholder));
-      return visualStack("ogv", ogvMm, parts.join(""), placeholder);
+      return visualStack("ogv", ogvMm, stampStappen("ogv", parts).join(""), placeholder);
     }
 
-    if ((st.B28 || 0) > 0) {
-      parts.push(
-        segmentBtn(
-          "ogv",
-          "ongew",
-          label + " · ongew. boven",
-          Math.round(st.B28),
-          ogvSegmentEquivMpa(st, "ongewTop"),
-          st.B28
-        )
+    const ogvSplit = typeHasRcel(values.wapTypeOgv) ? cellFillSplit(ogvMm) : null;
+    if (ogvSplit && ogvSplit.cell > 0 && ogvSplit.fill >= 100) {
+      appendCellSplitParts(
+        parts,
+        "ogv",
+        ogvSplit,
+        function (b) {
+          if (b.kind === "ong") return ogvSegmentEquivMpa(st, "ongewTop") || eqOng;
+          return ogvSegmentEquivMpa(st, "gewap") || eqGew;
+        },
+        { ong: "groen-licht", vul: "gewap", cel: "gewap" },
+        label
       );
-    }
-
-    if ((st.B29 || 0) > 0) {
-      parts.push(
-        segmentBtn(
-          "ogv",
-          "gewap",
-          label + " · gewapend",
-          Math.round(st.B29),
-          ogvSegmentEquivMpa(st, "gewap"),
-          st.B29
-        )
-      );
-    }
-
-    if ((st.B30 || 0) > 0) {
-      parts.push(
-        segmentBtn(
-          "ogv",
-          "ongew",
-          label + " · ongew. onder",
-          Math.round(st.B30),
-          ogvSegmentEquivMpa(st, "ongewOnder"),
-          st.B30
-        )
-      );
+    } else {
+      if ((st.B28 || 0) > 0) {
+        parts.push(
+          segmentBtn(
+            "ogv",
+            "groen-licht",
+            label + " · ongewapende overhoogte",
+            Math.round(st.B28),
+            ogvSegmentEquivMpa(st, "ongewTop"),
+            st.B28
+          )
+        );
+      }
+      if ((st.B29 || 0) > 0) {
+        const ogvType = wapeningTypeById(values.wapTypeOgv);
+        const rol = typeHasRcel(values.wapTypeOgv)
+          ? "gewapende celhoogte"
+          : ogvType
+            ? wapeningOptionLabel(ogvType, false, "ogv")
+            : "gewapend";
+        parts.push(
+          segmentBtn(
+            "ogv",
+            "gewap",
+            label + " · " + rol,
+            Math.round(st.B29),
+            ogvSegmentEquivMpa(st, "gewap"),
+            st.B29
+          )
+        );
+      }
+      if ((st.B30 || 0) > 0) {
+        parts.push(
+          segmentBtn(
+            "ogv",
+            "ogv",
+            label + " · ongewapend",
+            Math.round(st.B30),
+            ogvSegmentEquivMpa(st, "ongewOnder"),
+            st.B30
+          )
+        );
+      }
     }
 
     if (parts.length === 0) {
       parts.push(segmentBtn("ogv", "gewap", label, ogvMm, eqGew, ogvMm, placeholder));
     }
 
-    return visualStack("ogv", ogvMm, parts.join(""), placeholder);
+    return visualStack("ogv", ogvMm, stampStappen("ogv", parts).join(""), placeholder);
   }
 
   function renderBovenVisual() {
@@ -2583,23 +3914,29 @@
     const topH = bovenTopDikteSum();
     const placeholder = topH <= 0;
 
-    if (L) {
+    if (L && L.id === "asfalt") {
+      const lagen = ASFALT_LAGEN.map(function (laag) {
+        return { laag: laag, mm: asfaltLaagMm(laag) };
+      }).filter(function (x) {
+        return x.mm > 0;
+      });
+      if (!lagen.length) {
+        parts.push(segmentBtn("boven", "asfalt", "Asfalt", 0, null, 0, true));
+      } else {
+        lagen.forEach(function (x) {
+          parts.push(segmentBtn("boven", x.laag.cls, x.laag.label, x.mm, null, x.mm, false));
+        });
+      }
+    } else if (L) {
       const laagMm = bovenLaagMm(L);
       parts.push(
         segmentBtn("boven", L.cls, L.label, laagMm, null, laagMm > 0 ? laagMm : 0, laagMm <= 0 && placeholder)
       );
       const sz = bovenStraatzandMm();
-      if (sz > 0 || (L.id === "klinkers" && placeholder)) {
+      if (L.id === "klinkers") {
+        const bed = bovenBeddingKeuze();
         parts.push(
-          segmentBtn(
-            "boven",
-            "straatzand",
-            BOVEN_STRAATZAND.label,
-            sz,
-            null,
-            sz > 0 ? sz : 0,
-            sz <= 0 && placeholder
-          )
+          segmentBtn("boven", bed.cls, bed.label, sz, null, sz, sz <= 0)
         );
       }
     }
@@ -2610,7 +3947,7 @@
       );
     }
 
-    return visualStack("boven", topH, parts.join(""), placeholder);
+    return visualStack("boven", topH, stampStappen("boven", parts).join(""), placeholder);
   }
 
   function renderOnderconstructieVisual(fundWap, ogvWap) {
@@ -2623,9 +3960,7 @@
       sel +
       '" data-id="onder" data-mm="' +
       mm +
-      '" style="' +
-      flexStyle(mm, placeholder) +
-      '">' +
+      '" style="flex:0 0 auto;height:auto">' +
       inner +
       "</div>"
     );
@@ -2635,7 +3970,7 @@
     let html = renderBovenVisual();
     html += renderOnderconstructieVisual(fundWap, ogvWap);
     const grondMm = grondVisualMm();
-    const grondMat = laagMateriaalNaam("eOndergrond");
+    const grondMat = materiaalLabel("eOndergrond");
     html += segmentBtn(
       "grond",
       "grond",
@@ -2648,25 +3983,33 @@
   }
 
   function bindProfielClicks(root) {
-    if (!root) return;
-    root.querySelectorAll(".visual-layer, .visual-stack, .visual-onder-wrap").forEach(function (el) {
-      el.addEventListener("click", function (e) {
-        if (!el.dataset.id) return;
-        e.stopPropagation();
-        selectLayer(el.dataset.id);
-      });
+    if (!root || root.dataset.boundClicks) return;
+    root.dataset.boundClicks = "1";
+    root.addEventListener("click", function (e) {
+      const el = e.target.closest("[data-id]");
+      if (!el || !root.contains(el)) return;
+      selectLayer(el.dataset.id);
     });
   }
 
   /** Fundering + OGV equivalente E voor profielkolom (onderconstructie). */
-  function profielConstructieMpaText(fundWap, ogvWap) {
+  function profielConstructieMpa(fundWap, ogvWap) {
     const fundOng = calcAt(false, ogvWap);
     const fundGew = calcAt(fundWap, ogvWap);
     const ogvOng = calcAt(fundWap, false);
     const ogvGew = calcAt(fundWap, ogvWap);
-    const fund = fundWap ? fundGew.output.E13 : fundOng.output.D13;
+    const fund = fundWap
+      ? fundGew.output.E13
+      : isDruklaagActief()
+        ? fundOng.output.E13
+        : fundOng.output.D13;
     const ogv = ogvWap ? ogvGew.output.E14 : ogvOng.output.D14;
-    return fund + " / " + ogv + " MPa";
+    return { fund: Number(fund) || 0, ogv: Number(ogv) || 0 };
+  }
+
+  function profielConstructieMpaText(fundWap, ogvWap) {
+    const m = profielConstructieMpa(fundWap, ogvWap);
+    return m.fund + " / " + m.ogv + " MPa";
   }
 
   function updateVisualColLabels(gewEl, ongEl) {
@@ -2674,13 +4017,20 @@
       const label = gewEl.closest(".visual-col");
       const el = label && label.querySelector(".visual-col-label");
       if (el) {
+        const fundWapZichtbaar = isDruklaagActief()
+          ? wapeningFund && lichtHasWapening()
+          : wapeningFund;
+        const wapAan = fundWapZichtbaar || wapeningOgv;
+        el.classList.toggle("visual-col-label--rust", !wapAan);
         el.innerHTML =
-          "Gewapend" +
+          tx(wapAan ? "Gewapend" : "Opbouw") +
           '<span class="visual-col-mpa">' +
           profielConstructieMpaText(wapeningFund, wapeningOgv) +
           "</span>" +
-          '<span class="visual-col-mpa-sub">Fundering / ' +
-          ogvLabel() +
+          '<span class="visual-col-mpa-sub">' +
+          tx("Fundering") +
+          " / " +
+          tx(ogvLabel()) +
           "</span>";
       }
     }
@@ -2689,40 +4039,242 @@
       const el = label && label.querySelector(".visual-col-label");
       if (el) {
         el.innerHTML =
-          "Ongewapend" +
+          tx("Ongewapend") +
           '<span class="visual-col-mpa">' +
           profielConstructieMpaText(false, false) +
           "</span>" +
-          '<span class="visual-col-mpa-sub">Fundering / ' +
-          ogvLabel() +
+          '<span class="visual-col-mpa-sub">' +
+          tx("Fundering") +
+          " / " +
+          tx(ogvLabel()) +
           "</span>";
       }
     }
   }
 
+  function visualSignature(nodes) {
+    return nodes
+      .map(function (n) {
+        return (n.getAttribute("data-id") || "") + "|" + String(n.className).replace(" visual-layer--selected", "");
+      })
+      .join("~");
+  }
+
+  function syncVisualNode(node, neu) {
+    if (node.getAttribute("style") !== neu.getAttribute("style")) node.setAttribute("style", neu.getAttribute("style") || "");
+    if (node.getAttribute("data-mm") !== neu.getAttribute("data-mm")) {
+      if (neu.hasAttribute("data-mm")) node.setAttribute("data-mm", neu.getAttribute("data-mm"));
+    }
+    if (node.className !== neu.className) node.className = neu.className;
+    if (neu.hasAttribute("aria-pressed")) node.setAttribute("aria-pressed", neu.getAttribute("aria-pressed"));
+    if (neu.title) node.title = neu.title;
+    if (node.classList.contains("visual-stack")) {
+      const oldKids = Array.prototype.slice.call(node.children);
+      const newKids = Array.prototype.slice.call(neu.children);
+      if (oldKids.length === newKids.length && visualSignature(oldKids) === visualSignature(newKids)) {
+        oldKids.forEach(function (kid, i) {
+          syncVisualNode(kid, newKids[i]);
+        });
+        return;
+      }
+    }
+    if (node.innerHTML !== neu.innerHTML) node.innerHTML = neu.innerHTML;
+  }
+
+  function setVisualHtml(el, html, bindClicks) {
+    const probe = document.createElement("div");
+    probe.innerHTML = html;
+    const next = Array.prototype.slice.call(probe.children);
+    const prev = Array.prototype.slice.call(el.children);
+    if (prev.length && prev.length === next.length && visualSignature(prev) === visualSignature(next)) {
+      prev.forEach(function (node, i) {
+        syncVisualNode(node, next[i]);
+      });
+      return;
+    }
+    el.innerHTML = html;
+    if (bindClicks) bindProfielClicks(el);
+  }
+
   function mountVisual(gewEl, ongEl, bindClicks) {
     if (!gewEl && !ongEl) return;
-    const hPx = visualHeightPx();
     const htmlGew = renderProfielHtml(wapeningFund, wapeningOgv);
     const htmlOng = renderProfielHtml(false, false);
 
     if (gewEl) {
-      gewEl.innerHTML = htmlGew;
-      gewEl.style.height = hPx + "px";
+      gewEl.style.height = "auto";
       gewEl.dataset.totaalMm = String(visualProfielTotaalMm());
-      if (bindClicks) bindProfielClicks(gewEl);
+      setVisualHtml(gewEl, htmlGew, bindClicks);
     }
     if (ongEl) {
-      ongEl.innerHTML = htmlOng;
-      ongEl.style.height = hPx + "px";
+      ongEl.style.height = "auto";
       ongEl.dataset.totaalMm = String(visualProfielTotaalMm());
-      if (bindClicks) bindProfielClicks(ongEl);
+      setVisualHtml(ongEl, htmlOng, bindClicks);
+      const col = ongEl.closest(".visual-col");
+      if (col && col.id === "visual-col-ong") col.hidden = !showOngewapend;
     }
     updateVisualColLabels(gewEl, ongEl);
   }
 
+  function packageVisualLayers(root) {
+    if (!root) return [];
+    return Array.prototype.filter.call(root.querySelectorAll(".visual-layer"), function (el) {
+      return el.getAttribute("data-id") !== "grond";
+    });
+  }
+
+  function mmAtVisualY(root, y) {
+    const layers = packageVisualLayers(root);
+    let consumed = 0;
+    for (let i = 0; i < layers.length; i++) {
+      const el = layers[i];
+      const rect = el.getBoundingClientRect();
+      const mm = parseFloat(el.getAttribute("data-mm")) || 0;
+      if (y < rect.top) return consumed;
+      if (y <= rect.bottom) {
+        if (mm <= 0 || rect.height <= 0) return consumed;
+        return consumed + ((y - rect.top) / rect.height) * mm;
+      }
+      consumed += mm;
+    }
+    return consumed;
+  }
+
+  function yForMaaiveld(root, mm) {
+    const layers = packageVisualLayers(root);
+    const rootRect = root.getBoundingClientRect();
+    let consumed = 0;
+    let lastBottom = rootRect.top;
+    for (let i = 0; i < layers.length; i++) {
+      const el = layers[i];
+      const rect = el.getBoundingClientRect();
+      const layerMm = parseFloat(el.getAttribute("data-mm")) || 0;
+      lastBottom = rect.bottom;
+      if (layerMm <= 0) {
+        if (mm <= consumed) return rect.top;
+        continue;
+      }
+      if (mm <= consumed + layerMm) {
+        return rect.top + ((mm - consumed) / layerMm) * rect.height;
+      }
+      consumed += layerMm;
+    }
+    return lastBottom;
+  }
+
+  function layoutMaaiveld() {
+    const visual = document.getElementById("visual-gew");
+    const track = document.getElementById("maaiveld-track");
+    const thumb = document.getElementById("maaiveld-thumb");
+    const mark = document.getElementById("maaiveld-mark");
+    const wrap = document.getElementById("visual-wrap");
+    const mmEl = document.getElementById("maaiveld-mm");
+    if (!visual || !track || !thumb || !mark || !wrap) return;
+    const layers = packageVisualLayers(visual);
+    if (!layers.length) {
+      track.hidden = true;
+      mark.hidden = true;
+      return;
+    }
+    track.hidden = false;
+    mark.hidden = false;
+    const rail = track.parentElement;
+    const railRect = rail.getBoundingClientRect();
+    const first = layers[0].getBoundingClientRect();
+    const last = layers[layers.length - 1].getBoundingClientRect();
+    const top = first.top - railRect.top;
+    track.style.top = top + "px";
+    track.style.height = Math.max(48, last.bottom - first.top) + "px";
+    const mm = maaiveldMm();
+    const max = Math.round(pakketMeta().totaal);
+    const y = yForMaaiveld(visual, mm);
+    thumb.style.top = y - railRect.top - top + "px";
+    mark.style.top = y - wrap.getBoundingClientRect().top + "px";
+    if (mmEl) {
+      if (mm <= 0) mmEl.textContent = tx("op de verharding");
+      else if (mm >= max) mmEl.textContent = tx("onder het pakket");
+      else mmEl.textContent = mm + " mm";
+    }
+    thumb.setAttribute("aria-valuemin", "0");
+    thumb.setAttribute("aria-valuemax", String(max));
+    thumb.setAttribute("aria-valuenow", String(mm));
+    thumb.setAttribute(
+      "aria-valuetext",
+      mm <= 0
+        ? tx("Maaiveld op de verharding")
+        : mm >= max
+          ? tx("Maaiveld onder het pakket")
+          : mm + " mm " + tx("onder de verharding")
+    );
+  }
+
+  function scheduleMaaiveldLayout() {
+    layoutMaaiveld();
+    clearTimeout(scheduleMaaiveldLayout._t);
+    scheduleMaaiveldLayout._t = setTimeout(layoutMaaiveld, 400);
+  }
+
+  function setMaaiveldMm(mm, snap) {
+    const max = Math.max(0, Math.round(pakketMeta().totaal));
+    let next = Math.round(Number(mm) || 0);
+    if (snap) {
+      if (next <= 5) next = 0;
+      else if (max - next <= 5) next = max;
+      else next = Math.round(next / 10) * 10;
+    }
+    if (next < 0) next = 0;
+    if (next > max) next = max;
+    if (values.maaiveldMm === next) {
+      layoutMaaiveld();
+      return;
+    }
+    values.maaiveldMm = next;
+    renderPakketSummary();
+    layoutMaaiveld();
+  }
+
+  function bindMaaiveld() {
+    const track = document.getElementById("maaiveld-track");
+    const thumb = document.getElementById("maaiveld-thumb");
+    const visual = document.getElementById("visual-gew");
+    if (!track || !visual || track.dataset.bound) return;
+    track.dataset.bound = "1";
+    function fromClientY(clientY) {
+      setMaaiveldMm(mmAtVisualY(visual, clientY), true);
+    }
+    track.addEventListener("pointerdown", function (e) {
+      if (e.button != null && e.button !== 0) return;
+      track.setPointerCapture(e.pointerId);
+      fromClientY(e.clientY);
+      e.preventDefault();
+    });
+    track.addEventListener("pointermove", function (e) {
+      if (!track.hasPointerCapture(e.pointerId)) return;
+      fromClientY(e.clientY);
+    });
+    if (!thumb) return;
+    thumb.addEventListener("keydown", function (e) {
+      const max = Math.round(pakketMeta().totaal);
+      const cur = maaiveldMm();
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+        e.preventDefault();
+        setMaaiveldMm(Math.min(max, cur + 10), false);
+      } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+        e.preventDefault();
+        setMaaiveldMm(Math.max(0, cur - 10), false);
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        setMaaiveldMm(0, false);
+      } else if (e.key === "End") {
+        e.preventDefault();
+        setMaaiveldMm(max, false);
+      }
+    });
+  }
+
   function renderVisual() {
     mountVisual(visualGewEl, visualOngEl, true);
+    scheduleMaaiveldLayout();
   }
 
   function renderExpertVisual() {
@@ -2760,10 +4312,26 @@
         wap: false,
       },
     ];
+    if (bovenL && bovenL.id === "asfalt") {
+      ASFALT_LAGEN.forEach(function (laag) {
+        const mm = asfaltLaagMm(laag);
+        if (mm <= 0) return;
+        rows.push({
+          id: "boven",
+          laag: "↳ " + laag.label,
+          dikte: String(mm),
+          wapMm: "—",
+          ong: null,
+          gew: null,
+          wap: false,
+          sub: true,
+        });
+      });
+    }
     if (bovenStraatzandMm() > 0) {
       rows.push({
         id: "boven",
-        laag: "↳ " + BOVEN_STRAATZAND.label,
+        laag: "↳ " + bovenBeddingLabel(),
         dikte: String(bovenStraatzandMm()),
         wapMm: "—",
         ong: null,
@@ -2784,7 +4352,10 @@
     });
     rows.push({
       id: "fund",
-      laag: "↳ " + p.labels.fund,
+      laag:
+        "↳ " +
+        p.labels.fund +
+        (materiaalNaamMpaKey("eFundering") ? " · " + materiaalNaamMpaKey("eFundering") : ""),
       dikte: f.basis + " + " + f.oh + " = " + f.dikteTotaal,
       wapMm: wapeningFund && !f.druklaagAan ? f.wapDikte : "—",
       ong: fundOng.output.D13,
@@ -2792,30 +4363,77 @@
       wap: wapeningFund,
       sub: true,
     });
+    if (!f.druklaagAan && wapeningFund) {
+      fundProfielBanden(f, true).forEach(function (b) {
+        rows.push({
+          id: "fund",
+          laag: "↳ ↳ " + b.name,
+          dikte: String(b.mm),
+          wapMm: b.gewap ? b.mm : "—",
+          ong: null,
+          gew: null,
+          wap: b.gewap,
+          sub: true,
+        });
+      });
+    }
     if (f.druklaagAan) {
       const lichtMat = materiaalMatch("eFundering", MATERIAAL_LAAG);
       rows.push(
         {
           id: "fund-druk",
-          laag: "↳ ↳ Druklaag · geogrid",
-          dikte: String(f.drukStackMm),
-          wapMm: wapeningFund ? "geogrid" : "—",
-          ong: fundOng.state.C25 || f.eDruk,
-          gew: fundGew.state.C26 || fundGew.output.E13,
-          wap: wapeningFund,
+          laag:
+            "↳ ↳ Druklaag · " +
+            (materiaalNaamMpa(materiaalMatch("eDruklaag", MATERIAAL_DRUKLAAG), f.eDruk) || "druklaag") +
+            " · " +
+            (wapeningFund && druklaagHasWapening()
+              ? (wapeningTypeById(druklaagWapeningTypeId()) || {}).product || "E'Grid"
+              : "ongewapend"),
+          dikte: String(f.drukBasis) + (f.oh > 0 ? " + overhoogte " + f.oh + " ongewapend" : ""),
+          wapMm: wapeningFund && druklaagHasWapening()
+            ? (wapeningTypeById(druklaagWapeningTypeId()) || {}).product || "E'Grid"
+            : "—",
+          ong: f.eDruk,
+          gew: wapeningFund && druklaagHasWapening() ? fundGew.state.C26 || f.eDruk : f.eDruk,
+          wap: wapeningFund && druklaagHasWapening(),
           sub: true,
         },
         {
           id: "fund-licht",
-          laag: "↳ ↳ " + ((lichtMat && lichtMat.label) || "Licht"),
+          laag:
+            "↳ ↳ " +
+            (materiaalNaamMpa(lichtMat, f.eLicht) || "Licht") +
+            " · " +
+            (wapeningFund && lichtHasWapening()
+              ? (wapeningTypeById(lichtWapeningTypeId()) || {}).product || "R'Cel"
+              : "ongewapend"),
           dikte: String(f.lichtDikte),
-          wapMm: "—",
-          ong: fundOng.state.C27 || f.eLicht,
-          gew: fundGew.state.C27 || f.eLicht,
-          wap: wapeningFund,
+          wapMm:
+            wapeningFund && lichtHasWapening()
+              ? f.lichtSplit
+                ? "R'Cel " + f.lichtSplit.cell
+                : (wapeningTypeById(lichtWapeningTypeId()) || {}).product || "R'Cel"
+              : "—",
+          ong: f.eLicht,
+          gew: wapeningFund && lichtHasWapening() ? fundGew.state.C27 || f.eLicht : f.eLicht,
+          wap: wapeningFund && lichtHasWapening(),
           sub: true,
         }
       );
+      if (wapeningFund && f.lichtSplit) {
+        cellSplitBands(f.lichtSplit, "", (lichtMat && lichtMat.label) || "").forEach(function (b) {
+          rows.push({
+            id: "fund-licht",
+            laag: "↳ ↳ ↳ " + b.name,
+            dikte: String(b.mm),
+            wapMm: b.kind === "ong" ? "—" : b.mm,
+            ong: null,
+            gew: null,
+            wap: b.kind !== "ong",
+            sub: true,
+          });
+        });
+      }
     }
     rows.push(
       {
@@ -2859,11 +4477,11 @@
           r.dikte +
           '</td><td class="num">' +
           r.wapMm +
-          '</td><td class="num">' +
+          '</td><td class="num td-ong">' +
           (hasE ? r.ong + " MPa" : "—") +
           '</td><td class="num">' +
           (hasE ? (r.wap ? r.gew : r.ong) + " MPa" : "—") +
-          '</td><td class="num factor">' +
+          '</td><td class="num factor td-ong">' +
           (r.wap ? fac + "×" : "—") +
           "</td></tr>"
         );
@@ -2914,8 +4532,10 @@
       .concat(FIELDS.fund.dikte)
       .concat(FIELDS.fund.materiaal)
       .concat(FIELDS.fund.druklaag)
+      .concat([lichtDikteField()])
       .concat([{ key: "eDruklaag", label: "E-modulus druklaag", unit: "MPa", min: 30, max: 600, step: 5 }])
       .concat(FIELDS.fund.wapening)
+      .concat([rcelHoogteField()])
       .concat(FIELDS.ogv.dikte)
       .concat(FIELDS.ogv.materiaal)
       .concat(FIELDS.ogv.wapening)
@@ -2943,18 +4563,26 @@
 
   function expertFunderingModusHtml() {
     const vast = isFunderingVast();
+    const bindend = isBindendMateriaal("eFundering") || isBindendMateriaal("eDruklaag");
     return (
       '<div class="field-section">' +
-      '<div class="field-section-title">Fundering modus (F13)</div>' +
-      '<div class="expert-modus-btns" role="group" aria-label="Fundering modus">' +
+      '<div class="field-section-title">Rekenwijze ongewapende stijfheid</div>' +
+      '<div class="expert-modus-btns" role="group" aria-label="Rekenwijze">' +
       '<button type="button" class="expert-modus-btn' +
       (!vast ? " expert-modus-btn--active" : "") +
-      '" data-modus="vrij">Vrij</button>' +
+      '" data-modus="vrij"' +
+      (bindend ? " disabled" : "") +
+      ">Vrij</button>" +
       '<button type="button" class="expert-modus-btn' +
       (vast ? " expert-modus-btn--active" : "") +
       '" data-modus="vast">Vast</button>' +
       "</div>" +
-      '<p class="field-note">Vast: D13 = vulmateriaal E. Vrij: volledige Excel-keten.</p></div>'
+      '<p class="field-note">' +
+      (vast
+        ? "Vast: rekenen met de ingevulde ongewapende stijfheid van de (onder)fundering. SIF doet niet mee in de ontwerpberekening."
+        : "Vrij: het programma toetst of de ongewapende stijfheid van de (onder)fundering voldoet. Alleen voor ongebonden materialen.") +
+      (bindend ? " Bij menggranulaat of zelfbindend materiaal is vrij uitgeschakeld." : "") +
+      "</p></div>"
     );
   }
 
@@ -3104,9 +4732,19 @@
         expertCalcRow("F13 · modus", values.funderingModus, ""),
       ]) +
       expertCalcGroup("Wapening & factoren", [
-        expertCalcRow("Fundering — configuratie", wapeningTypeLabel(values.wapTypeFund), ""),
-        expertCalcRow("OGV — configuratie", wapeningTypeLabel(values.wapTypeOgv), ""),
+        expertCalcRow("Fundering — configuratie", wapeningTypeLabel(values.wapTypeFund, "fund"), ""),
+        expertCalcRow(
+          "Licht — configuratie",
+          isDruklaagActief() ? wapeningTypeLabel(lichtWapeningTypeId(), "fund-licht") : "—",
+          ""
+        ),
+        expertCalcRow("OGV — configuratie", wapeningTypeLabel(values.wapTypeOgv, "ogv"), ""),
         expertCalcRow("D19 · " + SIF_NAME + " (SIF)", formatFactor(values.sifFundering), ""),
+        expertCalcRow(
+          "Licht SIF",
+          isDruklaagActief() ? formatFactor(values.sifLicht) : "—",
+          ""
+        ),
         expertCalcRow("D20 · " + SIF_NAME + " (SIF)", formatFactor(values.sifOgv), ""),
         expertCalcRow("E19 · " + MIF_NAME + " (MIF)", values.mifFundering, ""),
         expertCalcRow("E20 · " + MIF_NAME + " (MIF)", values.mifOgv, ""),
@@ -3138,8 +4776,9 @@
       expertCalcGroup("Fundering zones (mm)", [
         expertCalcRow("B25 ongew.", Math.round(st.B25), "mm"),
         expertCalcRow("B26 gewap.", Math.round(st.B26), "mm"),
-        expertCalcRow("oh ongew.", f.ohOng, "mm"),
-        expertCalcRow("oh gewap.", f.ohGew, "mm"),
+        expertCalcRow("R'Cel", f.fundSplit ? f.fundSplit.cell : f.lichtSplit ? f.lichtSplit.cell : "—", "mm"),
+        expertCalcRow("vulling gewap.", f.fundSplit ? f.fundSplit.fillGew : f.lichtSplit ? f.lichtSplit.fillGew : f.ohGew, "mm"),
+        expertCalcRow("ongew. boven", f.fundSplit ? f.fundSplit.fillOng : f.lichtSplit ? f.lichtSplit.fillOng : f.ohOng, "mm"),
       ]) +
       expertCalcGroup("Equivalente E — fundering", [
         expertCalcRow("D13 zonder wap.", fundOng.output.D13, "MPa"),
@@ -3224,52 +4863,54 @@
           f.dikteTotaal +
           " mm" +
           (f.druklaagAan ? " · licht " + f.lichtDikte + " + druk " + f.drukBasis : ""),
-        expertFunderingModusHtml() +
-          sectionHtml("Dikte", FIELDS.fund.dikte, false) +
+        sectionHtml("Dikte", FIELDS.fund.dikte, false) +
+          (f.druklaagAan ? lichtDrukDikteSectionHtml() : "") +
           (f.druklaagAan
-            ? '<div class="field-section"><div class="field-section-title">Licht vulmateriaal</div>' +
-              FIELDS.fund.materiaal
-                .map(function (fld) {
-                  return materiaalFieldHtml(fld);
-                })
-                .join("") +
-              '<p class="field-note">Licht laag: <strong>' +
-              f.lichtDikte +
-              " mm</strong></p></div>" +
-              druklaagSectionHtml(false)
+            ? '<div data-expert-wap-section="fund">' +
+              expertWapeningToggleHtml("fund") +
+              lichtDrukWapeningHtml(!wapeningFund, { includeToggle: false }) +
+              "</div>"
+            : '<div class="field-section" data-expert-wap-section="fund">' +
+              '<div class="field-section-title">Wapening</div>' +
+              expertWapeningToggleHtml("fund") +
+              wapeningTypeHtml("fund", !wapeningFund) +
+              "</div>") +
+          (f.druklaagAan
+            ? lichtDrukMateriaalHtml()
             : materiaalSectionHtml(FIELDS.fund.materiaal, "fund")) +
-          '<div class="field-section" data-expert-wap-section="fund">' +
-          '<div class="field-section-title">' +
-          (f.druklaagAan ? "Wapening (SIF 10 licht + geogrid druklaag)" : "Wapening") +
-          "</div>" +
-          expertWapeningToggleHtml("fund") +
-          wapeningTypeHtml("fund", !wapeningFund) +
+          expertFunderingModusHtml() +
+          funderingEwHtml() +
+          '<div class="field-section">' +
+          '<div class="field-section-title">MIF en werkingsdikte</div>' +
+          mifDisplayHtml("fund", !wapeningFund) +
           (f.druklaagAan
-            ? '<p class="field-note">Geogrid over de hele druklaag; SIF 10 op BIMS/schuimglas. Geen geocel-hoogte.</p>'
+            ? ""
             : wapeningFieldsExceptSif("fund")
                 .map(function (fld) {
                   return fieldHtml(fld, !wapeningFund);
                 })
                 .join("")) +
-          mifDisplayHtml("fund", !wapeningFund) +
           "</div>",
         "fund"
       ) +
       expertSliderCard(
         ogvLabel(),
         p.labels.ogv + " · " + values.ogvDikte + " mm",
-        sectionHtml("Dikte", FIELDS.ogv.dikte, false) +
-          materiaalSectionHtml(FIELDS.ogv.materiaal, "ogv") +
-          '<div class="field-section" data-expert-wap-section="ogv">' +
+        '<div class="field-section" data-expert-wap-section="ogv">' +
           '<div class="field-section-title">Wapening</div>' +
           expertWapeningToggleHtml("ogv") +
           wapeningTypeHtml("ogv", !wapeningOgv) +
+          "</div>" +
+          sectionHtml("Dikte", FIELDS.ogv.dikte, false) +
+          materiaalSectionHtml(FIELDS.ogv.materiaal, "ogv") +
+          '<div class="field-section">' +
+          '<div class="field-section-title">MIF en werkingsdikte</div>' +
+          mifDisplayHtml("ogv", !wapeningOgv) +
           wapeningFieldsExceptSif("ogv")
             .map(function (fld) {
               return fieldHtml(fld, !wapeningOgv);
             })
             .join("") +
-          mifDisplayHtml("ogv", !wapeningOgv) +
           "</div>",
         "ogv"
       ) +
@@ -3283,9 +4924,10 @@
       ) +
       "</div></section></div>" +
       '<section class="expert-panel expert-panel--calc">' +
-      '<h3 class="expert-panel__title">Live berekening</h3>' +
-      '<p class="expert-panel__sub">Excel-cellen en tussenstappen · werkt direct mee met sliders</p>' +
-      '<div id="expert-calc-live" class="expert-calc-grid"></div></section>' +
+      "<details>" +
+      '<summary class="expert-panel__title">Tussenstappen (alleen voor controle)</summary>' +
+      '<p class="expert-panel__sub">Celverwijzingen voor eigenaar/ontwikkelaar — niet nodig voor de gebruiker.</p>' +
+      '<div id="expert-calc-live" class="expert-calc-grid"></div></details></section>' +
       '<section class="expert-panel expert-panel--table">' +
       '<h3 class="expert-panel__title">Stijfheidstabel</h3>' +
       '<div class="table-wrap"><table class="table" id="expert-table">' +
@@ -3334,13 +4976,41 @@
     });
     const constructieEl = document.getElementById("constructie-type");
     if (constructieEl) constructieEl.value = values.constructieType;
-    ["fund", "ogv"].forEach(function (layer) {
+    ["fund", "ogv", "fund-licht"].forEach(function (layer) {
       const sel = document.getElementById("wap-type-" + layer);
       const note = document.getElementById("wap-type-note-" + layer);
       const typeKey = wapeningTypeKey(layer);
       const sifKey = sifKeyForLayer(layer);
-      const cur = wapeningTypeById(values[typeKey]);
-      if (sel) sel.value = normalizeWapeningId(values[typeKey] || WAPENING_TYPE_DEFAULT);
+      const allowed = wapeningTypesForLayer(layer);
+      const curType = normalizeWapeningId(
+        layer === "fund" && isDruklaagActief()
+          ? WAPENING_DRUKLAAG_TYPE
+          : layer === "fund-licht"
+            ? lichtWapeningTypeId()
+            : values[typeKey] || WAPENING_TYPE_DEFAULT
+      );
+      const cur = wapeningTypeById(curType);
+      if (sel) {
+        sel.innerHTML = allowed
+          .map(function (t) {
+            return (
+              '<option value="' +
+              t.id +
+              '"' +
+              (curType === t.id ? " selected" : "") +
+              ">" +
+              wapeningOptionLabel(t, false, layer) +
+              "</option>"
+            );
+          })
+          .join("");
+        sel.value = curType;
+        sel.disabled =
+          allowed.length === 1 ||
+          (layer === "fund" && !wapeningFund) ||
+          (layer === "ogv" && !wapeningOgv) ||
+          (layer === "fund-licht" && !wapeningFund);
+      }
       if (note) {
         note.innerHTML =
           sifFieldLabel(layer) +
@@ -3429,8 +5099,14 @@
       }
       const modus = e.target.closest("[data-modus]");
       if (modus) {
-        values.funderingModus = modus.dataset.modus === "vast" ? "vast" : "vrij";
-        refreshExpertLive();
+        if (modus.disabled) return;
+        if (isBindendMateriaal("eFundering") || isBindendMateriaal("eDruklaag")) {
+          values.funderingModus = "vast";
+        } else {
+          values.funderingModus = modus.dataset.modus === "vast" ? "vast" : "vrij";
+        }
+        expertDashBuilt = false;
+        render();
       }
     });
 
@@ -3453,7 +5129,18 @@
       }
       if (el.matches("[data-boven-toplaag]")) {
         values.bovenToplaag = el.value;
+        if (el.value === "klinkers") {
+          if (!values.bovenBedding) values.bovenBedding = BOVEN_BEDDING_DEFAULT;
+          if (!(values.bovenStraatzand > 0)) values.bovenStraatzand = BOVEN_STRAATZAND.defaultMm;
+        }
+        if (el.value === "asfalt" && asfaltSum() <= 0) vulAsfaltDefaults();
         syncBovenDikte();
+        expertDashBuilt = false;
+        render();
+        return;
+      }
+      if (el.matches("[data-boven-bedding]")) {
+        values.bovenBedding = el.value;
         refreshExpertLive();
         return;
       }
@@ -3479,6 +5166,20 @@
       if (el.matches('input[type="range"]') && !el.disabled && el.dataset.key) {
         applyFieldValue(el.dataset.key, el.value, expertAllFields());
       }
+    });
+
+    expertDashboardEl.addEventListener("focusin", function (e) {
+      if (e.target && e.target.matches && e.target.matches('input[type="range"]')) {
+        rememberRangeFocus(e.target);
+      }
+    });
+
+    expertDashboardEl.addEventListener("keydown", function (e) {
+      const el = e.target;
+      if (!el || !el.matches || !el.matches('input[type="range"]') || el.disabled) return;
+      if (!nudgeRangeInput(el, e.key)) return;
+      e.preventDefault();
+      if (el.dataset.key) applyFieldValue(el.dataset.key, el.value, expertAllFields());
     });
   }
 
@@ -3530,7 +5231,7 @@
     document.body.classList.toggle("expert-mode", expertMode);
     if (expertToggleEl) {
       expertToggleEl.setAttribute("aria-pressed", expertMode ? "true" : "false");
-      expertToggleEl.textContent = expertMode ? "Standaard modus" : "Expert mode";
+      expertToggleEl.textContent = expertMode ? tx("Standaard modus") : tx("Expert mode");
     }
     if (expertDashboardEl) expertDashboardEl.hidden = !expertMode;
     if (standardViewEl) standardViewEl.hidden = expertMode;
@@ -3552,6 +5253,7 @@
   function render() {
     syncSheetFromInvoer();
     normalizeMateriaalKeuzeAliases();
+    syncFunderingModusVanMateriaal();
     syncDruklaagFromFundering();
     syncMifFromWapening();
     invalidateCalcCache();
@@ -3561,14 +5263,31 @@
       } else {
         refreshExpertLive();
       }
+      applyI18n();
       return;
     }
     expertDashBuilt = false;
+    markVisited(selected);
+    syncOngewapendUi();
     renderPakketSummary();
     renderTable();
     renderLayerTabs();
     renderVisual();
     renderPanel();
+    applyI18n();
+    syncStapJump();
+  }
+
+  function syncStapJump() {
+    document.querySelectorAll(".stap-jump").forEach(function (btn) {
+      const stap = btn.getAttribute("data-stap");
+      const on =
+        stap === selected ||
+        (stap === "fund" &&
+          (selected === "fund-licht" || selected === "fund-druk" || selected === "onder"));
+      btn.classList.toggle("is-on", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
   }
 
   if (expertToggleEl) {
@@ -3596,36 +5315,27 @@
     });
   }
 
-  function setGuideOpen(open) {
-    if (!guidePanelEl || !guideToggleEl) return;
-    guidePanelEl.hidden = !open;
-    guideToggleEl.setAttribute("aria-expanded", open ? "true" : "false");
-  }
-
-  if (guideToggleEl) {
-    guideToggleEl.addEventListener("click", function () {
-      setGuideOpen(guidePanelEl && guidePanelEl.hidden);
-    });
-  }
-
-  if (guidePanelEl) {
-    guidePanelEl.querySelectorAll("[data-guide-jump]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        if (btn.dataset.guideJump) selectLayer(btn.dataset.guideJump);
-      });
-    });
-  }
-
   function setTableOpen(open) {
     if (!tableWrapEl || !tableToggleEl) return;
     tableWrapEl.hidden = !open;
     tableToggleEl.setAttribute("aria-expanded", open ? "true" : "false");
-    tableToggleEl.textContent = open ? "Inklappen" : "Uitklappen";
+    tableToggleEl.textContent = open ? tx("Inklappen") : tx("Uitklappen");
   }
 
   if (tableToggleEl) {
     tableToggleEl.addEventListener("click", function () {
       setTableOpen(tableWrapEl && tableWrapEl.hidden);
+    });
+  }
+
+  const ongewapendToggleEl = document.getElementById("toggle-ongewapend");
+  if (ongewapendToggleEl) {
+    ongewapendToggleEl.addEventListener("change", function () {
+      showOngewapend = !!ongewapendToggleEl.checked;
+      syncOngewapendUi();
+      renderVisual();
+      renderTable();
+      applyI18n();
     });
   }
 
@@ -3635,6 +5345,7 @@
     resizeTimer = setTimeout(function () {
       renderVisual();
       if (expertMode) renderExpertVisual();
+      applyI18n();
     }, 150);
   });
 
@@ -3688,6 +5399,17 @@
       mk.eOgv || "",
       mk.eOndergrond || "",
       projectNaam().replace(/\|/g, "/"),
+      v.wapTypeLicht || "",
+      numOr(v.sifLicht, 0),
+      showOngewapend ? "1" : "0",
+      numOr(v.rcelHoogte, RCEL_HOOGTE_DEFAULT),
+      bovenBeddingId(),
+      v.funderingModus || "vrij",
+      mk.eDruklaag || "",
+      numOr(asfaltLaagMm(ASFALT_LAGEN[0]), 0),
+      numOr(asfaltLaagMm(ASFALT_LAGEN[1]), 0),
+      numOr(asfaltLaagMm(ASFALT_LAGEN[2]), 0),
+      numOr(v.maaiveldMm, 0),
     ].join("|");
   }
 
@@ -3709,7 +5431,7 @@
     values.eFundering = Number(p[13]) || 0;
     values.eOgv = Number(p[14]) || 0;
     values.eOndergrond = Number(p[15]) || 0;
-    values.wapFundering = Number(p[16]) || 0;
+    values.wapFundering = normalizeWapFundering(Number(p[16]) || 0);
     values.wapOgv = Number(p[17]) || 0;
     values.sifFundering = Number(p[18]) || 0;
     values.sifOgv = Number(p[19]) || 0;
@@ -3722,14 +5444,53 @@
       eFundering: p[25] || "",
       eOgv: p[26] || "",
       eOndergrond: p[27] || "",
+      eDruklaag: p[35] || "",
     };
     if (p[28]) {
       const el = document.getElementById("project_naam");
       if (el) el.value = p[28];
     }
-    values.bovenDikte =
-      (bovenActieveLaag() ? Number(values[bovenActieveLaag().dikteKey]) || 0 : 0) +
-      (Number(values.bovenStraatzand) || 0);
+    if (p[29]) values.wapTypeLicht = normalizeWapeningId(p[29]);
+    if (p[30] !== undefined && p[30] !== "") values.sifLicht = Number(p[30]) || values.sifLicht;
+    if (p[31] === "1") {
+      showOngewapend = true;
+      visitedGroups.grond = visitedGroups.ogv = visitedGroups.fund = visitedGroups.boven = true;
+    }
+    if (p[32] !== undefined && p[32] !== "") {
+      const h = Number(p[32]);
+      values.rcelHoogte = RCEL_HOOGTE_KEUZES.indexOf(h) >= 0 ? h : RCEL_HOOGTE_DEFAULT;
+    } else if (values.rcelHoogte == null) {
+      values.rcelHoogte = RCEL_HOOGTE_DEFAULT;
+    }
+    if (p[33]) {
+      values.bovenBedding = BOVEN_BEDDING.some(function (b) {
+        return b.id === p[33];
+      })
+        ? p[33]
+        : BOVEN_BEDDING_DEFAULT;
+    } else if (!values.bovenBedding) {
+      values.bovenBedding = BOVEN_BEDDING_DEFAULT;
+    }
+    if (p[34]) {
+      const modus = String(p[34]).trim().toLowerCase();
+      values.funderingModus = modus === "vast" || modus === "< vast" ? "vast" : "vrij";
+    }
+    if (p.length > 36 && p[36] !== "") {
+      values.bovenAsfaltDek = Number(p[36]) || 0;
+      values.bovenAsfaltTussen = Number(p[37]) || 0;
+      values.bovenAsfaltOnder = Number(p[38]) || 0;
+      syncAsfaltTotal();
+    } else if (values.bovenToplaag === "asfalt") {
+      splitAsfaltTotal(values.bovenAsfalt);
+    }
+    if (p.length > 39 && p[39] !== "") values.maaiveldMm = Number(p[39]) || 0;
+    else if (values.maaiveldMm == null) values.maaiveldMm = 0;
+    syncBovenDikte();
+    syncFunderingModusVanMateriaal();
+    visitedGroups.grond = true;
+    visitedGroups.ogv = true;
+    visitedGroups.fund = true;
+    visitedGroups.boven = true;
     return true;
   }
 
@@ -3740,19 +5501,281 @@
     if (typeof st.wapeningOgv === "boolean") wapeningOgv = st.wapeningOgv;
     if (st.materiaalKeuze) materiaalKeuze = st.materiaalKeuze;
     if (st.values) values = Object.assign({}, values, st.values);
+    if (values.bovenToplaag === "asfalt" && values.bovenAsfaltDek == null) {
+      splitAsfaltTotal(values.bovenAsfalt);
+    }
+    syncBovenDikte();
     if (st.project) {
       const el = document.getElementById("project_naam");
       if (el) el.value = st.project;
     }
   }
 
+  var SHARE_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  var SHARE_TOP = ["klinkers", "asfalt", "beton"];
+  var SHARE_BED = ["straatzand", "drainagemortel", "split"];
+  var SHARE_WAP = ["none", "grid_only", "cell_only", "grid_cell"];
+
+  function shareBitWriter() {
+    return {
+      n: 0,
+      bits: 0,
+      out: [],
+      write: function (val, width) {
+        var mask = width >= 31 ? 0x7fffffff : (1 << width) - 1;
+        this.n = (this.n << width) | (val & mask);
+        this.bits += width;
+        while (this.bits >= 8) {
+          this.bits -= 8;
+          this.out.push((this.n >> this.bits) & 255);
+          this.n &= (1 << this.bits) - 1;
+        }
+      },
+      bytes: function () {
+        if (this.bits) this.out.push((this.n << (8 - this.bits)) & 255);
+        return this.out;
+      },
+    };
+  }
+
+  function shareBitReader(bytes) {
+    return {
+      bytes: bytes,
+      i: 0,
+      n: 0,
+      bits: 0,
+      read: function (width) {
+        while (this.bits < width) {
+          var b = this.i < this.bytes.length ? this.bytes[this.i++] : 0;
+          this.n = (this.n << 8) | b;
+          this.bits += 8;
+        }
+        this.bits -= width;
+        var mask = width >= 31 ? 0x7fffffff : (1 << width) - 1;
+        var val = (this.n >> this.bits) & mask;
+        this.n &= (1 << this.bits) - 1;
+        return val;
+      },
+    };
+  }
+
+  function shareBytesToToken(bytes) {
+    var n = 0;
+    var bits = 0;
+    var out = "";
+    for (var i = 0; i < bytes.length; i++) {
+      n = (n << 8) | bytes[i];
+      bits += 8;
+      while (bits >= 6) {
+        bits -= 6;
+        out += SHARE_B64[(n >> bits) & 63];
+      }
+    }
+    if (bits) out += SHARE_B64[(n << (6 - bits)) & 63];
+    return out;
+  }
+
+  function shareTokenToBytes(token) {
+    var n = 0;
+    var bits = 0;
+    var out = [];
+    for (var i = 0; i < token.length; i++) {
+      var v = SHARE_B64.indexOf(token.charAt(i));
+      if (v < 0) return null;
+      n = (n << 6) | v;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        out.push((n >> bits) & 255);
+      }
+    }
+    return out;
+  }
+
+  function shareMatIndex(list, label) {
+    if (!label) return 0;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].label === label) return i + 1;
+    }
+    return 0;
+  }
+
+  function shareMatLabel(list, idx) {
+    if (!idx || idx > list.length) return "";
+    return list[idx - 1].label;
+  }
+
+  function shareIdx(list, id, fallback) {
+    var i = list.indexOf(id);
+    return i >= 0 ? i : fallback;
+  }
+
+  function shareU16(n) {
+    n = Math.round(Number(n) || 0);
+    if (n < 0) return 0;
+    if (n > 65535) return 65535;
+    return n;
+  }
+
+  function packShareToken() {
+    var v = values || {};
+    var mk = materiaalKeuze || {};
+    var w = shareBitWriter();
+    var naam = projectNaam().slice(0, 80);
+    var naamBytes = [];
+    try {
+      naamBytes = Array.prototype.slice.call(new TextEncoder().encode(naam));
+    } catch (e) {
+      naamBytes = [];
+    }
+    if (naamBytes.length > 180) naamBytes = naamBytes.slice(0, 180);
+    w.write(3, 4);
+    w.write(sheet === "capping" ? 1 : 0, 1);
+    w.write(wapeningFund ? 1 : 0, 1);
+    w.write(wapeningOgv ? 1 : 0, 1);
+    w.write(v.druklaagAan ? 1 : 0, 1);
+    w.write(showOngewapend ? 1 : 0, 1);
+    w.write(String(v.funderingModus || "").toLowerCase().indexOf("vast") >= 0 ? 1 : 0, 1);
+    w.write(shareIdx(SHARE_TOP, v.bovenToplaag, 2), 2);
+    w.write(shareIdx(SHARE_BED, bovenBeddingId(), 0), 2);
+    w.write(shareIdx(RCEL_HOOGTE_KEUZES, Number(v.rcelHoogte) || RCEL_HOOGTE_DEFAULT, 1), 2);
+    w.write(shareIdx(SHARE_WAP, normalizeWapeningId(v.wapTypeFund || WAPENING_TYPE_DEFAULT), 3), 2);
+    w.write(shareIdx(SHARE_WAP, normalizeWapeningId(v.wapTypeOgv || WAPENING_TYPE_DEFAULT), 3), 2);
+    w.write(shareIdx(SHARE_WAP, normalizeWapeningId(v.wapTypeLicht || "none"), 0), 2);
+    w.write(shareMatIndex(MATERIAAL_LAAG, mk.eFundering), 4);
+    w.write(shareMatIndex(MATERIAAL_ALLE, mk.eOgv), 4);
+    w.write(shareMatIndex(MATERIAAL_ALLE, mk.eOndergrond), 4);
+    w.write(shareMatIndex(MATERIAAL_DRUKLAAG, mk.eDruklaag), 4);
+    [
+      v.bovenKlinkers,
+      v.bovenAsfalt,
+      v.bovenBeton,
+      v.bovenStraatzand,
+      v.funderingBasis,
+      v.overhoogte,
+      v.ogvDikte,
+      v.eFundering,
+      v.eOgv,
+      v.eOndergrond,
+      v.eDruklaag,
+      v.druklaagDikte,
+      v.wapFundering,
+      v.wapOgv,
+      Math.round((Number(v.sifFundering) || 0) * 10),
+      Math.round((Number(v.sifOgv) || 0) * 10),
+      Math.round((Number(v.sifLicht) || 0) * 10),
+    ].forEach(function (num) {
+      w.write(shareU16(num), 16);
+    });
+    ASFALT_LAGEN.forEach(function (laag) {
+      w.write(shareU16(asfaltLaagMm(laag)), 16);
+    });
+    w.write(shareU16(v.maaiveldMm), 16);
+    w.write(naamBytes.length, 8);
+    naamBytes.forEach(function (b) {
+      w.write(b, 8);
+    });
+    return shareBytesToToken(w.bytes());
+  }
+
+  function applyShareToken(token) {
+    var bytes = shareTokenToBytes(String(token || "").trim());
+    if (!bytes || !bytes.length) return false;
+    var r = shareBitReader(bytes);
+    var shareVer = r.read(4);
+    if (shareVer !== 1 && shareVer !== 2 && shareVer !== 3) return false;
+    sheet = r.read(1) ? "capping" : "roadbase";
+    wapeningFund = r.read(1) === 1;
+    wapeningOgv = r.read(1) === 1;
+    values.druklaagAan = r.read(1) === 1;
+    showOngewapend = r.read(1) === 1;
+    values.funderingModus = r.read(1) ? "vast" : "vrij";
+    values.bovenToplaag = SHARE_TOP[r.read(2)] || "beton";
+    values.bovenBedding = SHARE_BED[r.read(2)] || BOVEN_BEDDING_DEFAULT;
+    values.rcelHoogte = RCEL_HOOGTE_KEUZES[r.read(2)] || RCEL_HOOGTE_DEFAULT;
+    values.wapTypeFund = SHARE_WAP[r.read(2)] || WAPENING_TYPE_DEFAULT;
+    values.wapTypeOgv = SHARE_WAP[r.read(2)] || WAPENING_TYPE_DEFAULT;
+    values.wapTypeLicht = SHARE_WAP[r.read(2)] || "none";
+    var matF = shareMatLabel(MATERIAAL_LAAG, r.read(4));
+    var matO = shareMatLabel(MATERIAAL_ALLE, r.read(4));
+    var matG = shareMatLabel(MATERIAAL_ALLE, r.read(4));
+    var matD = shareMatLabel(MATERIAAL_DRUKLAAG, r.read(4));
+    var nums = [];
+    var numCount = shareVer === 3 ? 21 : shareVer === 2 ? 20 : 17;
+    for (var i = 0; i < numCount; i++) nums.push(r.read(16));
+    values.bovenKlinkers = nums[0];
+    values.bovenAsfalt = nums[1];
+    values.bovenBeton = nums[2];
+    values.bovenStraatzand = nums[3];
+    values.funderingBasis = nums[4];
+    values.overhoogte = nums[5];
+    values.ogvDikte = nums[6];
+    values.eFundering = nums[7];
+    values.eOgv = nums[8];
+    values.eOndergrond = nums[9];
+    values.eDruklaag = nums[10];
+    values.druklaagDikte = nums[11];
+    values.wapFundering = normalizeWapFundering(nums[12]);
+    values.wapOgv = nums[13];
+    values.sifFundering = nums[14] / 10;
+    values.sifOgv = nums[15] / 10;
+    values.sifLicht = nums[16] / 10;
+    if (shareVer >= 2) {
+      values.bovenAsfaltDek = nums[17];
+      values.bovenAsfaltTussen = nums[18];
+      values.bovenAsfaltOnder = nums[19];
+      syncAsfaltTotal();
+    } else if (values.bovenToplaag === "asfalt") {
+      splitAsfaltTotal(values.bovenAsfalt);
+    }
+    values.maaiveldMm = shareVer === 3 ? nums[20] : 0;
+    materiaalKeuze = { eFundering: matF, eOgv: matO, eOndergrond: matG, eDruklaag: matD };
+    var naamLen = r.read(8);
+    var naamBytes = [];
+    for (var j = 0; j < naamLen; j++) naamBytes.push(r.read(8));
+    var naam = "";
+    try {
+      naam = new TextDecoder().decode(new Uint8Array(naamBytes));
+    } catch (e2) {
+      naam = "";
+    }
+    var el = document.getElementById("project_naam");
+    if (el) el.value = naam;
+    values.constructieType = sheet === "capping" ? "onderconstructie" : "beton-fund";
+    syncBovenDikte();
+    if (showOngewapend) {
+      visitedGroups.grond = visitedGroups.ogv = visitedGroups.fund = visitedGroups.boven = true;
+    }
+    syncFunderingModusVanMateriaal();
+    visitedGroups.grond = true;
+    visitedGroups.ogv = true;
+    visitedGroups.fund = true;
+    visitedGroups.boven = true;
+    return true;
+  }
+
   function shareUrl() {
-    const u = new URL(location.href.split("#")[0]);
-    u.hash = "c=" + encodeURIComponent(compactState());
+    const u = new URL(location.href);
+    u.hash = "";
+    u.search = "";
+    u.searchParams.set("r", packShareToken());
     return u.toString();
   }
 
   function restoreFromUrl() {
+    try {
+      const u = new URL(location.href);
+      const qr = u.searchParams.get("r");
+      if (qr && applyShareToken(qr)) return true;
+      const qc = u.searchParams.get("c");
+      if (qc && applyCompact(qc)) return true;
+      const qs = u.searchParams.get("s");
+      if (qs) {
+        applyState(JSON.parse(qs));
+        syncFunderingModusVanMateriaal();
+        return true;
+      }
+    } catch (e) {}
     const raw = location.hash.replace(/^#/, "");
     if (raw.indexOf("c=") === 0) {
       try {
@@ -3764,6 +5787,7 @@
     if (raw.indexOf("s=") === 0) {
       try {
         applyState(JSON.parse(decodeURIComponent(raw.slice(2))));
+        syncFunderingModusVanMateriaal();
         return true;
       } catch (e) {
         return false;
@@ -3816,6 +5840,181 @@
     return materiaalKeuze[key] || "";
   }
 
+  function materiaalNaamMpa(m, eFallback) {
+    if (!m) {
+      const e = Number(eFallback) || 0;
+      return e ? e + " MPa" : "";
+    }
+    return m.label + " (" + m.mpa + " MPa" + (m.kgM3 ? " · " + formatKg(m.kgM3) + " kg/m³" : "") + ")";
+  }
+
+  function materiaalNaamMpaKey(key) {
+    const m = materiaalMatch(key);
+    if (m) return materiaalNaamMpa(m);
+    const naam = materiaalKeuze[key] || "";
+    const e = Number(values[key]) || 0;
+    if (naam && e) return naam + " (" + e + " MPa)";
+    if (naam) return naam;
+    return e ? e + " MPa" : "";
+  }
+
+  function kgM3ForKey(key) {
+    const m = materiaalMatch(key);
+    return m && m.kgM3 ? m.kgM3 : 0;
+  }
+
+  function mmToKgM2(mm, kgM3) {
+    return ((Number(mm) || 0) / 1000) * (Number(kgM3) || 0);
+  }
+
+  /** Millimeters vanaf de bovenzijde van de verharding tot het maaiveld. 0 = maaiveld op de verharding. */
+  function maaiveldMm() {
+    const max = Math.max(0, Math.round(Number(pakketMeta().totaal) || 0));
+    let mm = Math.round(Number(values.maaiveldMm) || 0);
+    if (!Number.isFinite(mm) || mm < 0) mm = 0;
+    if (mm > max) mm = max;
+    return mm;
+  }
+
+  function gewichtBalansTekst(w) {
+    const deltaAbs = Math.abs(Math.round(w.delta));
+    if (deltaAbs < 5) return tx("in balans");
+    if (w.delta < 0) return formatKg(deltaAbs) + " kg/m² " + tx("lichter");
+    return formatKg(deltaAbs) + " kg/m² " + tx("zwaarder");
+  }
+
+  function gewichtSubTekst(w) {
+    const balans = gewichtBalansTekst(w);
+    const boven = Math.round(w.bovenMaaiveldMm || 0);
+    if (boven <= 0) {
+      return tx("Zelfde hoogte slappe klei") + " " + formatKg(w.kleiKg) + " kg/m² · " + balans;
+    }
+    const onder = Math.round(w.onderMaaiveldMm || 0);
+    if (onder <= 0) {
+      return tx("Hele pakket boven maaiveld, veen wordt niet afgetrokken") + " · " + balans;
+    }
+    return (
+      tx("Slappe klei alleen in het cunet") +
+      " " +
+      onder +
+      " mm · " +
+      formatKg(w.kleiKg) +
+      " kg/m² · " +
+      boven +
+      " mm " +
+      tx("boven maaiveld telt volledig mee") +
+      " · " +
+      balans
+    );
+  }
+
+  function gewichtMeta() {
+    const f = fundMeta(wapeningFund);
+    const regels = [];
+    const L = bovenActieveLaag();
+    if (L && L.id === "asfalt") {
+      ASFALT_LAGEN.forEach(function (laag) {
+        const mm = asfaltLaagMm(laag);
+        if (mm > 0) regels.push({ naam: laag.label, mm: mm, kgM3: laag.kgM3 || 0 });
+      });
+    } else if (L) {
+      regels.push({ naam: L.label, mm: bovenLaagMm(L), kgM3: L.kgM3 || 0 });
+    }
+    if (L && L.id === "klinkers") {
+      const bed = bovenBeddingKeuze();
+      regels.push({ naam: bed.label, mm: bovenStraatzandMm(), kgM3: bed.kgM3 || 0 });
+    }
+    if (f.druklaagAan) {
+      regels.push({
+        naam: materiaalNaamMpa(materiaalMatch("eDruklaag", MATERIAAL_DRUKLAAG), f.eDruk) || "Druklaag",
+        mm: f.drukStackMm,
+        kgM3: kgM3ForKey("eDruklaag"),
+      });
+      regels.push({
+        naam: materiaalNaamMpa(materiaalMatch("eFundering", MATERIAAL_LAAG), f.eLicht) || "Licht",
+        mm: f.lichtDikte,
+        kgM3: kgM3ForKey("eFundering"),
+      });
+    } else {
+      regels.push({
+        naam: materiaalNaamMpaKey("eFundering") || tx("Fundering"),
+        mm: f.dikteTotaal,
+        kgM3: kgM3ForKey("eFundering"),
+      });
+    }
+    const ogvMm = Number(values.ogvDikte) || 0;
+    if (ogvMm > 0) {
+      regels.push({
+        naam: materiaalNaamMpaKey("eOgv") || ogvLabel(),
+        mm: ogvMm,
+        kgM3: kgM3ForKey("eOgv"),
+      });
+    }
+    const stand = maaiveldMm();
+    let nogBoven = stand;
+    let bovenKg = 0;
+    let onderKg = 0;
+    let onderMm = 0;
+    regels.forEach(function (r) {
+      const mm = Number(r.mm) || 0;
+      const above = Math.min(mm, nogBoven);
+      const below = mm - above;
+      nogBoven -= above;
+      bovenKg += mmToKgM2(above, r.kgM3);
+      onderKg += mmToKgM2(below, r.kgM3);
+      onderMm += below;
+    });
+    const pakketKg = bovenKg + onderKg;
+    const hoogte = pakketMeta().totaal;
+    const kleiKg = mmToKgM2(onderMm, REFERENTIE_KLEI_KG_M3);
+    const delta = pakketKg - kleiKg;
+    return {
+      regels: regels,
+      pakketKg: pakketKg,
+      kleiKg: kleiKg,
+      delta: delta,
+      hoogte: hoogte,
+      maaiveldMm: stand,
+      bovenMaaiveldMm: stand - nogBoven,
+      onderMaaiveldMm: onderMm,
+      bovenKg: bovenKg,
+      onderKg: onderKg,
+    };
+  }
+
+  function formatKg(n) {
+    const v = Math.round(n);
+    return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  }
+
+  function infillInCelTekst(key) {
+    const naam = materiaalLabel(key);
+    const e = Number(values[key]) || 0;
+    if (naam && e) return naam + " · " + e + " MPa";
+    if (naam) return naam;
+    return e ? e + " MPa" : "—";
+  }
+
+  /** Alleen PDF-profiel: gekozen vulmateriaal bij fundering/overhoogte. */
+  function pdfFundLayers(layers) {
+    const mat = laagMateriaalNaam("eFundering");
+    if (!mat) return layers;
+    const fundCombo = PRESETS[sheet].labels.fund;
+    return layers.map(function (L) {
+      const name = L.name || "";
+      if (name.indexOf(mat) !== -1) return L;
+      let next = name;
+      if (name.indexOf(fundCombo) === 0) {
+        next = name.replace(fundCombo, fundCombo + " · " + mat);
+      } else if (name.indexOf("Overhoogte") === 0) {
+        next = name.replace("Overhoogte", "Overhoogte · " + mat);
+      } else if (name.indexOf("Fundering") === 0) {
+        next = name.replace("Fundering", "Fundering · " + mat);
+      }
+      return next === name ? L : Object.assign({}, L, { name: next });
+    });
+  }
+
   function fmtMm(n) {
     return (Number(n) || 0) + " mm";
   }
@@ -3828,11 +6027,9 @@
     if (!meta) return String(mif);
     return (
       String(mif) +
-      " · tabel " +
-      meta.tabel +
-      " (" +
+      " (ondergrond " +
       meta.eOnderbouw +
-      " × " +
+      " MPa × laag " +
       meta.eInfill +
       " MPa)"
     );
@@ -3854,7 +6051,13 @@
         const cs = window.getComputedStyle(el);
         return {
           name: (nameEl && nameEl.textContent.trim()) || "",
-          vals: valsEl ? valsEl.textContent.replace(/\s+/g, " ").trim() : "",
+          vals: valsEl
+            ? valsEl.textContent
+                .replace(/\s+/g, " ")
+                .replace(/mm(?=\d)/gi, "mm ")
+                .replace(/([²³%])(?=\d)/g, "$1 ")
+                .trim()
+            : "",
           mm: parseFloat(el.getAttribute("data-mm")) || 0,
           rgb: parseRgb(cs.backgroundColor),
         };
@@ -3882,6 +6085,7 @@
       renderTable();
       renderPakketSummary();
     }
+    applyI18n();
 
     const p = PRESETS[sheet];
     const f = fundMeta(wapeningFund);
@@ -3894,7 +6098,7 @@
     const pk = pakketMeta();
     const constructie = constructieBySheet(sheet);
     const bovenL = bovenActieveLaag();
-    const fundType = wapeningTypeById(values.wapTypeFund);
+    const fundType = wapeningTypeById(f.druklaagAan ? lichtWapeningTypeId() : values.wapTypeFund);
     const ogvType = wapeningTypeById(values.wapTypeOgv);
     const layersGew = visualLayers(expertMode ? "expert-visual-gew" : "visual-gew");
     const layersOng = visualLayers(expertMode ? "expert-visual-ong" : "visual-ong");
@@ -3909,8 +6113,15 @@
         "—",
       ],
     ];
+    if (bovenL && bovenL.id === "asfalt") {
+      ASFALT_LAGEN.forEach(function (laag) {
+        const mm = asfaltLaagMm(laag);
+        if (mm <= 0) return;
+        tableRows.push(["  " + laag.label, fmtMm(mm), "—", "—", "—", "—"]);
+      });
+    }
     if (bovenStraatzandMm() > 0) {
-      tableRows.push(["  Straatzand", fmtMm(bovenStraatzandMm()), "—", "—", "—", "—"]);
+      tableRows.push(["  " + bovenBeddingLabel(), fmtMm(bovenStraatzandMm()), "—", "—", "—", "—"]);
     }
     tableRows.push([
       "Onderconstructie",
@@ -3920,14 +6131,69 @@
       "—",
       "—",
     ]);
+    const fundKopOng = profielConstructieMpa(false, false);
+    const fundKopGew = profielConstructieMpa(wapeningFund, wapeningOgv);
     tableRows.push([
-      "  " + p.labels.fund,
+      "  " +
+        p.labels.fund +
+        (materiaalNaamMpaKey("eFundering") ? " · " + materiaalNaamMpaKey("eFundering") : ""),
       f.basis + " + " + f.oh + " = " + f.dikteTotaal + " mm",
       wapeningFund ? fmtMm(f.wapDikte) : "—",
-      fmtMpa(fundOng.output.D13),
-      fmtMpa(wapeningFund ? fundGew.output.E13 : fundOng.output.D13),
-      wapeningFund ? factor(fundOng.output.D13, fundGew.output.E13) + "×" : "—",
+      fmtMpa(fundKopOng.fund),
+      fmtMpa(wapeningFund ? fundKopGew.fund : fundKopOng.fund),
+      wapeningFund ? factor(fundKopOng.fund, fundKopGew.fund) + "×" : "—",
     ]);
+    if (!f.druklaagAan && wapeningFund) {
+      fundProfielBanden(f, true).forEach(function (b) {
+        tableRows.push([
+          "    " + b.name,
+          fmtMm(b.mm),
+          b.gewap ? fmtMm(b.mm) : "—",
+          "—",
+          "—",
+          "—",
+        ]);
+      });
+    }
+    if (f.druklaagAan) {
+      const lichtMat = materiaalMatch("eFundering", MATERIAAL_LAAG);
+      const drukType = wapeningTypeById(druklaagWapeningTypeId());
+      const lichtType = wapeningTypeById(lichtWapeningTypeId());
+      const drukNaam = wapeningFund && druklaagHasWapening()
+        ? wapeningOptionLabel(drukType, false, "fund")
+        : "ongewapend";
+      const lichtNaam = wapeningFund && lichtHasWapening()
+        ? wapeningOptionLabel(lichtType, false, "fund-licht")
+        : "ongewapend";
+      tableRows.push([
+        "    Druklaag · " + (materiaalKeuze.eDruklaag || "druklaag") + " · " + drukNaam,
+        fmtMm(f.drukBasis),
+        wapeningFund && druklaagHasWapening() ? "SIF " + formatFactor(drukType ? drukType.sif : 5) : "—",
+        fmtMpa(f.eDruk),
+        fmtMpa(wapeningFund && druklaagHasWapening() ? fundGew.state.C26 || f.eDruk : f.eDruk),
+        wapeningFund && druklaagHasWapening() ? factor(f.eDruk, fundGew.state.C26 || f.eDruk) + "×" : "—",
+      ]);
+      tableRows.push([
+        "    " + ((lichtMat && lichtMat.label) || "Licht") + " · " + lichtNaam,
+        fmtMm(f.lichtDikte),
+        wapeningFund && lichtHasWapening() && f.lichtSplit ? "R'Cel " + f.lichtSplit.cell + " mm" : "—",
+        fmtMpa(f.eLicht),
+        fmtMpa(wapeningFund && lichtHasWapening() ? fundGew.state.C27 || f.eLicht : f.eLicht),
+        wapeningFund && lichtHasWapening() ? factor(f.eLicht, fundGew.state.C27 || f.eLicht) + "×" : "—",
+      ]);
+      if (wapeningFund && f.lichtSplit) {
+        cellSplitBands(f.lichtSplit, (lichtMat && lichtMat.label) || "").forEach(function (b) {
+          tableRows.push([
+            "      " + b.name,
+            fmtMm(b.mm),
+            b.kind === "ong" ? "—" : fmtMm(b.mm),
+            "—",
+            "—",
+            "—",
+          ]);
+        });
+      }
+    }
     tableRows.push([
       "  " + p.labels.ogv + (laagMateriaalNaam("eOgv") ? " · " + laagMateriaalNaam("eOgv") : ""),
       fmtMm(values.ogvDikte),
@@ -3947,39 +6213,131 @@
 
     const invoer = [
       ["Project", projectNaam() || "—"],
-      ["Constructietype", constructiePrintLabel() + " · " + (constructie ? constructie.tab : sheet)],
-      ["Toplaag", bovenL ? bovenL.label + " · " + fmtMm(bovenLaagMm(bovenL)) : "geen"],
+      ["Constructietype", constructiePrintLabel()],
     ];
+    if (bovenL && bovenL.id === "asfalt") {
+      ASFALT_LAGEN.forEach(function (laag) {
+        invoer.push([laag.label, fmtMm(asfaltLaagMm(laag))]);
+      });
+      invoer.push(["Asfalt totaal", fmtMm(asfaltSum())]);
+    } else {
+      invoer.push(["Toplaag", bovenL ? bovenL.label + " · " + fmtMm(bovenLaagMm(bovenL)) : "geen"]);
+    }
     if (bovenStraatzandMm() > 0) {
-      invoer.push(["Straatzand", fmtMm(bovenStraatzandMm())]);
+      invoer.push([bovenBeddingLabel(), fmtMm(bovenStraatzandMm())]);
     }
     invoer.push(["Bovenconstructie totaal", fmtMm(pk.boven) + " · vaste equivalente E " + BOVEN_E_EQUIVALENT + " MPa (geen Romfix)"]);
     invoer.push(["Fundering nominaal", fmtMm(f.basis)]);
-    invoer.push(["Overhoogte", fmtMm(f.oh) + (f.oh > OVERHOOGTE_GEWAP_MAX ? " (gewapend max " + OVERHOOGTE_GEWAP_MAX + " mm)" : "")]);
+    invoer.push([
+      "Overhoogte",
+      fmtMm(f.oh) +
+        (f.oh > OVERHOOGTE_GEWAP_MAX ? " (gewapend max " + OVERHOOGTE_GEWAP_MAX + " mm)" : ""),
+    ]);
     invoer.push(["Fundering totaal", fmtMm(f.dikteTotaal)]);
-    invoer.push(["Vulmateriaal fundering", (materiaalLabel("eFundering") ? materiaalLabel("eFundering") + " · " : "") + fmtMpa(values.eFundering)]);
+    invoer.push(["Materiaal in fundering", infillInCelTekst("eFundering")]);
     if (f.druklaagAan) {
-      invoer.push(["Licht fundering", fmtMm(f.lichtDikte) + " · " + fmtMpa(f.eLicht)]);
-      invoer.push(["Druklaag", fmtMm(f.drukBasis) + " · " + (materiaalKeuze.eDruklaag || "") + " · " + fmtMpa(f.eDruk)]);
+      invoer.push(["Licht fundering", fmtMm(f.lichtDikte) + " · " + (materiaalLabel("eFundering") || "") + " · " + fmtMpa(f.eLicht)]);
+      invoer.push([
+        "Druklaag",
+        fmtMm(f.drukBasis) +
+          " · " +
+          (materiaalKeuze.eDruklaag || "") +
+          " · " +
+          fmtMpa(f.eDruk) +
+          (wapeningFund && druklaagHasWapening()
+            ? " · " + wapeningOptionLabel(wapeningTypeById(WAPENING_DRUKLAAG_TYPE), false, "fund")
+            : ""),
+      ]);
+      if (wapeningFund && f.lichtSplit) {
+        invoer.push(["Gewapende celhoogte", fmtMm(f.lichtSplit.cell)]);
+        if (f.lichtSplit.fillGew > 0) invoer.push(["Gewapende overhoogte", fmtMm(f.lichtSplit.fillGew)]);
+        if (f.lichtSplit.fillOng > 0) invoer.push(["Ongewapende overhoogte", fmtMm(f.lichtSplit.fillOng)]);
+      }
     }
-    invoer.push(["Fundering modus (F13)", isFunderingVast() ? "Vast — D13 = vulmateriaal E" : "Vrij — volledige Excel-keten"]);
-    invoer.push(["Wapening fundering", wapeningFund ? "Aan · " + (fundType ? wapeningOptionLabel(fundType) : "—") : "Uit"]);
+    invoer.push([
+      "Rekenwijze ongewapende stijfheid",
+      isFunderingVast()
+        ? "Vast — In = W, SIF doet niet mee"
+        : "Vrij — W volgt uit laagdikte en ondergrond",
+    ]);
+    invoer.push(["Ongewapende stijfheid In / W", fmtMpa(eInFundering()) + " / " + fmtMpa(eWFundering())]);
+    invoer.push([
+      "Wapening fundering",
+      wapeningFund
+        ? "Aan · " + (fundType ? wapeningOptionLabel(fundType, false, f.druklaagAan ? "fund-licht" : "fund") : "—")
+        : "Uit",
+    ]);
     if (wapeningFund) {
-      invoer.push(["Standaard hoogte wapening", fmtMm(f.standaardWap)]);
-      invoer.push(["Werkingsdikte fundering", fmtMm(f.wapDikte) + " (standaard + " + WAP_FUNDERING_WERKING_EXTRA + " mm, max laag)"]);
-      invoer.push(["SIF fundering (D19)", formatFactor(values.sifFundering) + " · " + SIF_NAME]);
-      invoer.push(["MIF fundering (E19)", mifRegel(mifLookupMeta.fund, values.mifFundering)]);
+      if (typeHasRcel(f.druklaagAan ? lichtWapeningTypeId() : values.wapTypeFund)) {
+        const split = f.druklaagAan ? f.lichtSplit : f.fundSplit;
+        invoer.push(["Hoogte R'Cel", fmtMm(split ? split.cell : rcelHoogteMm())]);
+        invoer.push(["Infill in R'Cel", infillInCelTekst("eFundering")]);
+        if (split && split.fillGew > 0 && !f.druklaagAan) {
+          invoer.push(["Gewapende overhoogte", fmtMm(split.fillGew)]);
+        }
+        if (split && split.fillOng > 0 && !f.druklaagAan) {
+          invoer.push(["Ongewapende overhoogte", fmtMm(split.fillOng)]);
+        }
+      }
+      invoer.push(["Effectieve werkingsdikte fundering", fmtMm(f.wapDikte)]);
+      if (f.druklaagAan) {
+        invoer.push(["SIF druklaag (geogrid)", formatFactor(values.sifFundering)]);
+        invoer.push(["SIF lichte laag", formatFactor(values.sifLicht)]);
+        invoer.push(["MIF lichte laag", mifRegel(mifLookupMeta.licht, values.mifLicht)]);
+      } else {
+        invoer.push(["SIF fundering", formatFactor(values.sifFundering)]);
+        invoer.push(["MIF fundering", mifRegel(mifLookupMeta.fund, values.mifFundering)]);
+      }
     }
     invoer.push([p.labels.ogv, fmtMm(values.ogvDikte)]);
     invoer.push(["Vulmateriaal OGV", (materiaalLabel("eOgv") ? materiaalLabel("eOgv") + " · " : "") + fmtMpa(values.eOgv)]);
-    invoer.push(["Wapening OGV", wapeningOgv ? "Aan · " + (ogvType ? wapeningOptionLabel(ogvType) : "—") : "Uit"]);
+    invoer.push(["Wapening OGV", wapeningOgv ? "Aan · " + (ogvType ? wapeningOptionLabel(ogvType, false, "ogv") : "—") : "Uit"]);
     if (wapeningOgv) {
       invoer.push(["Werkingsdikte OGV", fmtMm(values.wapOgv)]);
-      invoer.push(["SIF OGV (D20)", formatFactor(values.sifOgv) + " · " + SIF_NAME]);
-      invoer.push(["MIF OGV (E20)", mifRegel(mifLookupMeta.ogv, values.mifOgv)]);
+      if (typeHasRcel(values.wapTypeOgv)) {
+        invoer.push(["Infill in R'Cel (OGV)", infillInCelTekst("eOgv")]);
+      }
+      invoer.push(["SIF OGV", formatFactor(values.sifOgv)]);
+      invoer.push(["MIF OGV", mifRegel(mifLookupMeta.ogv, values.mifOgv)]);
     }
-    invoer.push(["Ondergrond", (materiaalLabel("eOndergrond") ? materiaalLabel("eOndergrond") + " · " : "") + fmtMpa(values.eOndergrond)]);
+    invoer.push([
+      "Ondergrond",
+      (materiaalLabel("eOndergrond") ? materiaalLabel("eOndergrond") + " · " : "") +
+        fmtMpa(values.eOndergrond) +
+        (kgM3ForKey("eOndergrond") ? " · " + formatKg(kgM3ForKey("eOndergrond")) + " kg/m³" : ""),
+    ]);
     invoer.push(["Pakketdikte", pk.totaal + " mm (" + pk.omschrijving + ")"]);
+    const gewichtPdf = gewichtMeta();
+    invoer.push(["Gewicht pakket", formatKg(gewichtPdf.pakketKg) + " kg/m²"]);
+    if ((gewichtPdf.bovenMaaiveldMm || 0) > 0) {
+      invoer.push([
+        "Maaiveld",
+        Math.round(gewichtPdf.maaiveldMm) + " mm onder bovenzijde verharding",
+      ]);
+      invoer.push([
+        "Boven maaiveld",
+        fmtMm(gewichtPdf.bovenMaaiveldMm) + " · " + formatKg(gewichtPdf.bovenKg) + " kg/m²",
+      ]);
+      invoer.push([
+        "Onder maaiveld (cunet)",
+        fmtMm(gewichtPdf.onderMaaiveldMm) +
+          " · vervangen slappe klei " +
+          formatKg(gewichtPdf.kleiKg) +
+          " kg/m²",
+      ]);
+    }
+    gewichtPdf.regels.forEach(function (regel) {
+      invoer.push([
+        "  " + regel.naam,
+        fmtMm(regel.mm) + " · " + formatKg(regel.kgM3) + " kg/m³ · " + formatKg(mmToKgM2(regel.mm, regel.kgM3)) + " kg/m²",
+      ]);
+    });
+    const pctPdf = stijfheidPercentages();
+    invoer.push([
+      "Verschil gewapend t.o.v. ongewapend",
+      pctTekst(pctPdf.fund) +
+        (pctPdf.ogv ? " · " + p.labels.ogv.toLowerCase() + " " + pctTekst(pctPdf.ogv) : ""),
+    ]);
 
     const excel = [
       ["B12 boven", fmtMm(st.B12)],
@@ -4008,10 +6366,19 @@
       ["E14 met wapening", fmtMpa(ogvGew.output.E14)],
     ];
 
-    return {
-      title: projectNaam() ? "Romfix — " + projectNaam() : "Romfix sterkteberekening",
+    const report = {
+      title: projectNaam() ? "Romfix — " + projectNaam() : "Romfix funderings rekenhulp",
       project: projectNaam(),
-      date: new Date().toLocaleString("nl-NL"),
+      date: new Date().toLocaleString(
+        (function () {
+          const code = window.RomfixI18n && window.RomfixI18n.lang();
+          if (code === "en") return "en-GB";
+          if (code === "da") return "da-DK";
+          if (code === "de") return "de-DE";
+          if (code === "pap") return "nl-CW";
+          return "nl-NL";
+        })()
+      ),
       version: "2.3",
       sheetTab: constructie ? constructie.tab : sheet,
       constructieLabel: constructie ? constructie.label : "",
@@ -4019,6 +6386,8 @@
       f: f,
       wapeningFund: wapeningFund,
       wapeningOgv: wapeningOgv,
+      fundMateriaal: materiaalNaamMpaKey("eFundering") || laagMateriaalNaam("eFundering"),
+      gewicht: gewichtMeta(),
       e: {
         fundOng: fundOng.output.D13,
         fundGew: fundGew.output.E13,
@@ -4032,12 +6401,31 @@
       tableRows: tableRows,
       invoer: invoer,
       excel: excel,
-      layersGew: layersGew,
-      layersOng: layersOng,
+      layersGew: pdfFundLayers(layersGew),
+      layersOng: pdfFundLayers(layersOng),
       share: shareUrl(),
       disclaimer:
-        "Indicatieve berekening volgens Romfix-werkboek v2.3 (Palmer-Barber, Austroads, Thenn + MIF-tabellen). Geen bindende projectberekening. Controleer met ontwerp, verkeersklasse en sondering.",
+        "Indicatieve Romfix-berekening (werkboek v2.3). Geen bindende projectberekening. Controleer met ontwerp, verkeersklasse en sondering. Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.",
     };
+    return localizeReport(report);
+  }
+
+  function localizeReport(r) {
+    if (!window.RomfixI18n || window.RomfixI18n.lang() === "nl") return r;
+    function loc(v, skip) {
+      if (skip) return v;
+      if (typeof v === "string") return window.RomfixI18n.tMix(v);
+      if (Array.isArray(v)) return v.map(function (x) { return loc(x); });
+      if (v && typeof v === "object") {
+        const o = {};
+        Object.keys(v).forEach(function (k) {
+          o[k] = k === "share" || k === "version" || k === "date" || k === "rgb" ? v[k] : loc(v[k]);
+        });
+        return o;
+      }
+      return v;
+    }
+    return loc(r);
   }
 
   function htmlEscape(s) {
@@ -4087,36 +6475,62 @@
       "<h1>" +
       htmlEscape(r.title) +
       "</h1>" +
-      '<p class="print-meta">Romfix B.V. · werkboek v' +
+      '<p class="print-meta">Romfix B.V. · ' +
+      tx("werkboek") +
+      " v" +
       r.version +
-      " · " +
-      htmlEscape(r.sheetTab) +
       " · " +
       htmlEscape(r.date) +
       "</p>" +
+      (document.getElementById("pakket-summary")
+        ? document.getElementById("pakket-summary").outerHTML
+        : "") +
       '<div class="print-kpis">' +
-      '<div class="print-kpi">Pakket<strong>' +
-      r.pk.totaal +
-      " mm</strong>" +
-      r.pk.omschrijving +
+      printKpiCards(r)
+        .map(function (k) {
+          return (
+            '<div class="print-kpi">' +
+            '<span class="print-kpi__label">' +
+            htmlEscape(k.label) +
+            "</span>" +
+            "<strong>" +
+            htmlEscape(k.value) +
+            "</strong>" +
+            '<span class="print-kpi__sub">' +
+            htmlEscape(k.sub) +
+            "</span></div>"
+          );
+        })
+        .join("") +
       "</div>" +
-      '<div class="print-kpi">Fundering E<strong>' +
-      r.e.fundOng +
-      (r.wapeningFund ? " → " + r.e.fundGew : "") +
-      " MPa</strong>" +
-      (r.wapeningFund ? "factor " + r.e.fundFac + "×" : "wapening uit") +
-      "</div>" +
-      '<div class="print-kpi">OGV E<strong>' +
-      r.e.ogvOng +
-      (r.wapeningOgv ? " → " + r.e.ogvGew : "") +
-      " MPa</strong>" +
-      (r.wapeningOgv ? "factor " + r.e.ogvFac + "×" : "wapening uit") +
-      "</div></div>" +
-      "<h2>Profiel gewapend vs ongewapend</h2>" +
+      "<h2>" + tx("Profiel gewapend vs ongewapend") + "</h2>" +
       cloneVisualsHtml() +
-      "<h2>Stijfheidstabel</h2>" +
-      htmlTable(["Laag", "Dikte", "Wapening", "Zonder wapening", "Met wapening", "Factor"], r.tableRows) +
-      "<h2>Toelichting</h2>" +
+      "<h2>" + tx("Waarden per laag") + "</h2>" +
+      htmlTable(
+        [tx("Situatie"), tx("Laag"), tx("Waarden")],
+        r.layersGew
+          .map(function (L) {
+            return [tx("Gewapend"), L.name || "—", L.vals || "—"];
+          })
+          .concat(
+            r.layersOng.map(function (L) {
+              return [tx("Ongewapend"), L.name || "—", L.vals || "—"];
+            })
+          )
+      ) +
+      "<h2>" + tx("Stijfheidstabel") + "</h2>" +
+      htmlTable(
+        [tx("Laag"), tx("Dikte"), tx("Wapening"), tx("Zonder wapening"), tx("Met wapening"), tx("Factor")],
+        r.tableRows
+      ) +
+      "<h2>" + tx("Invoer") + "</h2>" +
+      htmlTable([tx("Onderdeel"), tx("Waarde")], r.invoer, true) +
+      "<h2>" + tx("Toelichting") + "</h2>" +
+      '<p class="print-advice"><strong>' +
+      htmlEscape(
+        "Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek."
+      ) +
+      "</strong></p>" +
       '<p class="print-note">' +
       htmlEscape(r.disclaimer) +
       "</p>";
@@ -4175,6 +6589,9 @@
       Õ: 213,
       Ö: 214,
       "×": 215,
+      "·": 183,
+      "²": 178,
+      "³": 179,
       Ø: 216,
       Ù: 217,
       Ú: 218,
@@ -4214,7 +6631,11 @@
       ÿ: 255,
     };
     let out = "";
-    const str = String(s == null ? "" : s);
+    const str = String(s == null ? "" : s)
+      .replace(/\u2192/g, " -> ")
+      .replace(/\u2014/g, " - ")
+      .replace(/\u2013/g, "-")
+      .replace(/\u2011/g, "-");
     for (let i = 0; i < str.length; i++) {
       const ch = str.charAt(i);
       let code = ch.charCodeAt(0);
@@ -4359,86 +6780,163 @@
       });
       y -= 6;
     }
-    function drawStack(layers, x, label, sub) {
+    function drawStack(layers, x, label, sub, width) {
       textAt(x, y, 10, label, true, rgb(0.106, 0.165, 0.29));
-      textAt(x, y - 12, 8, sub, false, rgb(0.3, 0.35, 0.4));
+      const subLines = pdfWrap(sub, 8, width, false);
+      subLines.forEach(function (ln, i) {
+        textAt(x, y - 12 - i * 10, 8, ln, false, rgb(0.3, 0.35, 0.4));
+      });
       const totalMm =
         layers.reduce(function (s, L) {
           return s + (L.mm || 0);
         }, 0) || 1;
-      const maxH = 250;
-      let yy = y - 18;
+      const maxH = 210;
+      let yy = y - 16 - subLines.length * 10;
       layers.forEach(function (L) {
-        const h = Math.max(16, (L.mm / totalMm) * maxH);
+        const h = Math.max(18, ((L.mm || 8) / totalMm) * maxH);
         yy -= h;
         const col = L.rgb || [0.47, 0.71, 0];
-        fillRect(x, yy, 248, h - 1.2, rgb(col[0], col[1], col[2]));
-        const dark = col[0] + col[1] + col[2] < 1.45;
+        fillRect(x, yy, width, h - 1.2, rgb(col[0], col[1], col[2]));
+        const dark = col[0] + col[1] + col[2] < 1.55;
         const ink = dark ? "1 1 1" : rgb(0.12, 0.16, 0.23);
-        const nameLines = pdfWrap((L.name || "") + (L.vals ? "  " + L.vals : ""), 8, 236, false);
-        textAt(x + 6, yy + Math.max(4, h / 2 - 4), 8, nameLines[0], false, ink);
+        const vals = String(L.vals || "").replace(/mm(?=\S)/gi, "mm ");
+        const lines = pdfWrap((L.name || "") + (vals ? "   " + vals : ""), 7, width - 10, false).slice(0, 2);
+        let ty = yy + h - 12;
+        lines.forEach(function (ln) {
+          textAt(x + 5, ty, 7, ln, false, ink);
+          ty -= 9;
+        });
       });
+      return yy;
     }
 
     fillRect(0, pageH - 28, pageW, 28, rgb(0.106, 0.165, 0.29));
-    textAt(margin, pageH - 19, 11, "Romfix sterkteberekening", true, "1 1 1");
-    textAt(pageW - margin - 90, pageH - 19, 9, "v" + r.version + "  indicatief", false, "1 1 1");
+    textAt(margin, pageH - 19, 11, tx("Romfix funderings rekenhulp"), true, "1 1 1");
+    textAt(pageW - margin - 90, pageH - 19, 9, "v" + r.version + "  " + tx("indicatief"), false, "1 1 1");
     y = pageH - 48;
     textAt(margin, y, 16, r.title, true, rgb(0.106, 0.165, 0.29));
     y -= 14;
-    para(r.sheetTab + "  ·  " + r.date, 9);
-    y -= 6;
+    para(r.date, 9);
+    y -= 8;
 
-    const kpiH = 36;
-    ensure(kpiH + 8);
-    const kpis = [
-      ["Pakket", r.pk.totaal + " mm", r.pk.omschrijving],
-      [
-        "Fundering E",
-        r.e.fundOng + (r.wapeningFund ? " → " + r.e.fundGew : "") + " MPa",
-        r.wapeningFund ? "factor " + r.e.fundFac + "×" : "wapening uit",
-      ],
-      [
-        "OGV E",
-        r.e.ogvOng + (r.wapeningOgv ? " → " + r.e.ogvGew : "") + " MPa",
-        r.wapeningOgv ? "factor " + r.e.ogvFac + "×" : "wapening uit",
-      ],
-    ];
-    kpis.forEach(function (k, i) {
-      const x = margin + i * 172;
-      strokeRect(x, y - kpiH, 164, kpiH, rgb(0.773, 0.804, 0.847));
-      textAt(x + 6, y - 12, 7.5, k[0], false, rgb(0.4, 0.45, 0.5));
-      textAt(x + 6, y - 24, 10, k[1], true, rgb(0.106, 0.165, 0.29));
-      textAt(x + 6, y - 34, 7, k[2], false, rgb(0.3, 0.35, 0.4));
+    const balk = document.getElementById("pakket-summary");
+    const balkDikte = balk && balk.querySelector(".kpi-bar__value")
+      ? balk.querySelector(".kpi-bar__value").innerText.replace(/\s+/g, " ").trim()
+      : r.pk.totaal + " mm";
+    const balkChips = balk
+      ? Array.prototype.map.call(balk.querySelectorAll(".kpi-bar__chips > span"), function (el) {
+          return el.innerText.replace(/\s+/g, " ").trim();
+        })
+      : [];
+    const chipH = 16;
+    const chipGap = 6;
+    let chipRows = 1;
+    let probeX = 0;
+    balkChips.forEach(function (chip) {
+      const w = Math.min(contentW - 8, pdfTextWidth(chip, 8, false) + 14);
+      if (probeX > 0 && probeX + w > contentW) {
+        chipRows += 1;
+        probeX = w + chipGap;
+      } else probeX += w + chipGap;
     });
-    y -= kpiH + 10;
+    const balkH = 28 + chipRows * (chipH + 4) + 8;
+    ensure(balkH + 6);
+    fillRect(margin, y - balkH, contentW, balkH, rgb(0.965, 0.972, 0.98));
+    textAt(margin + 10, y - 16, 8, "PAKKETDIKTE", false, rgb(0.42, 0.47, 0.54));
+    textAt(margin + 10, y - 32, 13, balkDikte, true, rgb(0.106, 0.165, 0.29));
+    let cx = margin + 10;
+    let cy = y - 48;
+    balkChips.forEach(function (chip) {
+      const w = Math.min(contentW - 20, pdfTextWidth(chip, 8, false) + 14);
+      if (cx > margin + 10 && cx + w > margin + contentW - 8) {
+        cx = margin + 10;
+        cy -= chipH + 4;
+      }
+      strokeRect(cx, cy - 3, w, chipH, rgb(0.82, 0.86, 0.9));
+      textAt(cx + 6, cy + 1, 8, chip, false, rgb(0.15, 0.2, 0.28));
+      cx += w + chipGap;
+    });
+    y -= balkH + 12;
 
-    heading("Profiel gewapend vs ongewapend");
-    const stackTop = y;
-    const leftH =
-      20 +
-      Math.max(
-        80,
-        r.layersGew.reduce(function (s, L) {
-          return s + Math.max(16, 1);
-        }, 0)
-      );
-    ensure(270);
-    drawStack(r.layersGew, margin, "Gewapend", r.e.colGew);
-    drawStack(r.layersOng, margin + 275, "Ongewapend", r.e.colOng);
-    y = stackTop - 270;
+    const kpis = printKpiCards(r);
+    const kpiGap = 8;
+    const kpiW = (contentW - kpiGap) / 2;
+    const kpiInner = kpiW - 14;
+    const kpiLineH = 9;
+    const kpiBlocks = kpis.map(function (k) {
+      return {
+        label: k.label,
+        value: k.value,
+        lines: pdfWrap(k.sub, 7, kpiInner, false).slice(0, 4),
+      };
+    });
+    for (let i = 0; i < kpiBlocks.length; i += 2) {
+      const pair = kpiBlocks.slice(i, i + 2);
+      const kpiH =
+        28 +
+        Math.max.apply(
+          null,
+          pair.map(function (b) {
+            return b.lines.length * kpiLineH;
+          })
+        );
+      ensure(kpiH + 8);
+      pair.forEach(function (k, j) {
+        const x = margin + j * (kpiW + kpiGap);
+        strokeRect(x, y - kpiH, kpiW, kpiH, rgb(0.773, 0.804, 0.847));
+        textAt(x + 7, y - 12, 7.5, k.label, false, rgb(0.4, 0.45, 0.5));
+        textAt(x + 7, y - 24, 9, k.value, true, rgb(0.106, 0.165, 0.29));
+        k.lines.forEach(function (ln, li) {
+          textAt(x + 7, y - 34 - li * kpiLineH, 7, ln, false, rgb(0.3, 0.35, 0.4));
+        });
+      });
+      y -= kpiH + 8;
+    }
+    y -= 4;
 
-    heading("Stijfheidstabel");
+    heading(tx("Profiel gewapend vs ongewapend"));
+    ensure(240);
+    const leftBottom = drawStack(r.layersGew, margin, tx("Gewapend"), r.e.colGew, 250);
+    const rightBottom = drawStack(r.layersOng, margin + 265, tx("Ongewapend"), r.e.colOng, 250);
+    y = Math.min(leftBottom, rightBottom) - 10;
+
+    function laagRijen(layers, situatie) {
+      return layers.map(function (L) {
+        return [situatie, L.name || "—", L.vals || "—"];
+      });
+    }
+    const laagRows = laagRijen(r.layersGew, tx("Gewapend")).concat(laagRijen(r.layersOng, tx("Ongewapend")));
+    if (laagRows.length) {
+      heading(tx("Waarden per laag"));
+      drawTable([tx("Situatie"), tx("Laag"), tx("Waarden")], laagRows, [78, 230, 207], { size: 7 });
+    }
+
+    heading(tx("Stijfheidstabel"));
     drawTable(
-      ["Laag", "Dikte", "Wapening", "Zonder", "Met", "Factor"],
+      [tx("Laag"), tx("Dikte"), tx("Wapening"), tx("Zonder"), tx("Met"), tx("Factor")],
       r.tableRows,
       [155, 95, 70, 70, 70, 55]
     );
 
-    heading("Toelichting");
+    heading(tx("Invoer"));
+    drawTable([tx("Onderdeel"), tx("Waarde")], r.invoer, [175, 340], { kv: true, size: 8 });
+
+    heading(tx("Toelichting"));
+    const advies =
+      "Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.";
+    const adviesLines = pdfWrap(tx(advies), 11, contentW - 16, true);
+    const adviesH = 16 + adviesLines.length * 14;
+    ensure(adviesH + 8);
+    fillRect(margin, y - adviesH, contentW, adviesH, rgb(0.93, 0.97, 0.86));
+    let ay = y - 16;
+    adviesLines.forEach(function (ln) {
+      textAt(margin + 8, ay, 11, ln, true, rgb(0.1, 0.25, 0.12));
+      ay -= 14;
+    });
+    y -= adviesH + 8;
     para(r.disclaimer, 8);
     y -= 8;
-    textAt(margin, 28, 8, "Romfix B.V. · www.romfix.nl · geen bindende projectberekening", false, rgb(0.4, 0.45, 0.5));
+    textAt(margin, 28, 8, tx("Romfix B.V. · www.romfix.nl · geen bindende projectberekening"), false, rgb(0.4, 0.45, 0.5));
 
     flushPage();
 
@@ -4522,7 +7020,7 @@
     try {
       window.open(url, "_blank");
     } catch (_) {}
-    setShareStatus("PDF klaar. Werkt de download niet? Tik op ‘Tik hier om de PDF te openen’.");
+    setShareStatus(tx("PDF klaar. Werkt de download niet? Tik op ‘Tik hier om de PDF te openen’."));
     return url;
   }
 
@@ -4557,7 +7055,7 @@
         window.open(url, "_blank");
       }
     };
-    setShareStatus("Printvenster geopend. Kies ‘Opslaan als PDF’ voor een kopie.");
+    setShareStatus(tx("Printvenster geopend. Kies ‘Opslaan als PDF’ voor een kopie."));
   }
 
   function printPdf() {
@@ -4578,17 +7076,17 @@
     const btn = document.getElementById("btnDownloadPdf");
     if (btn) {
       btn.disabled = true;
-      btn.textContent = "PDF maken…";
+      btn.textContent = tx("PDF maken…");
     }
     try {
       makePdf();
     } catch (err) {
       console.error(err);
-      alert("PDF maken lukte niet. Probeer Chrome of Safari, niet de in-app browser van Telegram.");
+      alert(tx("PDF maken lukte niet. Probeer Chrome of Safari, niet de in-app browser van Telegram."));
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = "Download PDF";
+        btn.textContent = tx("Download PDF");
       }
     }
   }
@@ -4613,11 +7111,11 @@
     try {
       if (navigator.share) {
         await navigator.share({
-          title: projectNaam() || "Romfix-berekening",
-          text: "Romfix berekening",
+          title: projectNaam() || tx("Romfix-berekening"),
+          text: tx("Romfix berekening"),
           url: url,
         });
-        setShareStatus("Gedeeld.");
+        setShareStatus(tx("Gedeeld."));
         return;
       }
     } catch (err) {
@@ -4625,9 +7123,9 @@
     }
     try {
       await navigator.clipboard.writeText(url);
-      setShareStatus("Link gekopieerd.");
+      setShareStatus(tx("Korte link gekopieerd."));
     } catch (_) {
-      window.prompt("Kopieer deze link:", url);
+      window.prompt(tx("Kopieer deze link:"), url);
     }
   }
 
@@ -4653,5 +7151,23 @@
   loadPreset("roadbase");
   restoreFromUrl();
   bindExport();
+  bindMaaiveld();
+  document.querySelectorAll(".stap-jump").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      selectLayer(btn.getAttribute("data-stap"));
+    });
+  });
+  if (window.RomfixI18n) {
+    window.RomfixI18n.onChange = function () {
+      if (expertToggleEl) {
+        expertToggleEl.textContent = expertMode ? tx("Standaard modus") : tx("Expert mode");
+      }
+      if (tableToggleEl && tableWrapEl) {
+        tableToggleEl.textContent = tableWrapEl.hidden ? tx("Uitklappen") : tx("Inklappen");
+      }
+      render();
+    };
+    window.RomfixI18n.bind();
+  }
   render();
 })();

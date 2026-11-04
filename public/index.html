@@ -4,124 +4,103 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#1b2a4a" />
-  <title>Romfix — sterkteberekening</title>
-  <meta name="description" content="Interactieve Romfix sterkteberekening — laagopbouw, wapening en stijfheid live." />
+  <title>Romfix — funderings rekenhulp</title>
+  <meta name="description" content="Interactieve Romfix funderings rekenhulp — laagopbouw, wapening en stijfheid live." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20260831-ogv-zand" />
+  <link rel="stylesheet" href="styles.css?v=20261014-asfalt3" />
 </head>
 <body>
   <header class="container">
     <div class="header-row">
-      <h1>Romfix <span>sterkteberekening</span></h1>
+      <h1>Romfix <span data-i18n>funderings rekenhulp</span></h1>
       <div class="header-actions">
-        <button type="button" id="guide-toggle" class="guide-toggle" aria-expanded="false" aria-controls="guide-panel">
-          Handleiding
-        </button>
+        <div class="lang-switch" role="group" aria-label="Taal" data-i18n-aria data-no-i18n>
+          <button type="button" class="lang-btn" data-lang="nl" aria-pressed="true" aria-label="Nederlands" title="Nederlands" data-i18n-aria>
+            <span class="lang-flag" aria-hidden="true">
+              <svg class="lang-flag-svg" viewBox="0 0 24 16"><rect width="24" height="5.33" fill="#AE1C28"/><rect y="5.33" width="24" height="5.34" fill="#FFFFFF"/><rect y="10.67" width="24" height="5.33" fill="#21468B"/></svg>
+            </span>
+          </button>
+          <button type="button" class="lang-btn" data-lang="en" aria-pressed="false" aria-label="Engels" title="Engels" data-i18n-aria>
+            <span class="lang-flag" aria-hidden="true">
+              <svg class="lang-flag-svg" viewBox="0 0 24 16"><rect width="24" height="16" fill="#012169"/><path d="M0 0l24 16M24 0L0 16" stroke="#FFFFFF" stroke-width="2.6"/><path d="M0 0l24 16M24 0L0 16" stroke="#C8102E" stroke-width="1.2"/><path d="M12 0v16M0 8h24" stroke="#FFFFFF" stroke-width="4.2"/><path d="M12 0v16M0 8h24" stroke="#C8102E" stroke-width="2.2"/></svg>
+            </span>
+          </button>
+          <button type="button" class="lang-btn" data-lang="da" aria-pressed="false" aria-label="Deens" title="Deens" data-i18n-aria>
+            <span class="lang-flag" aria-hidden="true">
+              <svg class="lang-flag-svg" viewBox="0 0 24 16"><rect width="24" height="16" fill="#C8102E"/><rect x="7.2" width="3.2" height="16" fill="#FFFFFF"/><rect y="6.4" width="24" height="3.2" fill="#FFFFFF"/></svg>
+            </span>
+          </button>
+          <button type="button" class="lang-btn" data-lang="de" aria-pressed="false" aria-label="Duits" title="Duits" data-i18n-aria>
+            <span class="lang-flag" aria-hidden="true">
+              <svg class="lang-flag-svg" viewBox="0 0 24 16"><rect width="24" height="5.33" fill="#000000"/><rect y="5.33" width="24" height="5.34" fill="#DD0000"/><rect y="10.67" width="24" height="5.33" fill="#FFCE00"/></svg>
+            </span>
+          </button>
+          <button type="button" class="lang-btn" data-lang="pap" aria-pressed="false" aria-label="Papiaments" title="Papiaments" data-i18n-aria>
+            <span class="lang-flag" aria-hidden="true">
+              <svg class="lang-flag-svg" viewBox="0 0 24 16"><rect width="24" height="16" fill="#002B7F"/><rect y="10.2" width="24" height="2.1" fill="#F9E814"/><circle cx="4.2" cy="3.3" r="1.15" fill="#fff"/><circle cx="6.7" cy="5.5" r="0.72" fill="#fff"/></svg>
+            </span>
+          </button>
+        </div>
         <button type="button" id="expert-toggle" class="expert-toggle" aria-pressed="false">
           Expert mode
         </button>
       </div>
     </div>
-    <p class="intro">Werk van onder naar boven. Wijzigingen zie je direct in profiel en tabel.</p>
-    <div class="export-bar no-print" id="export-bar">
-      <input type="text" id="project_naam" class="project-naam" placeholder="Projectnaam (voor PDF)" maxlength="80" aria-label="Projectnaam voor PDF en mail" />
-      <div class="export-bar__btns">
-        <button type="button" id="btnPrintPdf" class="export-btn">Printen / PDF</button>
-        <button type="button" id="btnDownloadPdf" class="export-btn export-btn--primary">Download PDF</button>
-        <button type="button" id="btnMail" class="export-btn">Mailen</button>
-        <button type="button" id="btnShare" class="export-btn">Link delen</button>
-      </div>
-      <p id="shareStatus" class="share-status" hidden></p>
-      <p id="pdf-fallback" class="pdf-fallback" hidden>
-        <a id="pdf-fallback-link" href="#" download="romfix-berekening.pdf">Tik hier om de PDF te openen</a>
-      </p>
-    </div>
+    <h2 class="intro-title" data-i18n>Hoe werkt deze tool</h2>
+    <nav class="stap-nav" aria-label="Stappen">
+      <button type="button" class="stap-jump" data-stap="grond"><span class="stap">1</span><span data-i18n>Ondergrond</span></button>
+      <button type="button" class="stap-jump" data-stap="ogv"><span class="stap">2</span><span data-i18n>Verbetering</span></button>
+      <button type="button" class="stap-jump" data-stap="fund"><span class="stap">3</span><span data-i18n>Fundering</span></button>
+      <button type="button" class="stap-jump" data-stap="boven"><span class="stap">4</span><span data-i18n>Bovenbouw</span></button>
+    </nav>
+    <p class="intro" data-i18n>Klik een stap of de laag in het profiel.</p>
   </header>
 
   <main class="container" id="main">
     <div id="expert-dashboard" class="expert-dashboard" hidden></div>
 
     <div id="standard-view" class="print-root">
-      <section id="guide-panel" class="guide" hidden>
-        <div class="guide-head">
-          <h2 class="guide-title">Handleiding</h2>
-          <p class="guide-lead">Vier stappen, onder → boven. Klik <strong>Open</strong> om direct naar de juiste laag te gaan.</p>
-        </div>
-
-        <ol class="guide-steps">
-          <li class="guide-step guide-step--grond">
-            <div class="guide-step__head">
-              <span class="guide-swatch guide-swatch--grond" aria-hidden="true"></span>
-              <div>
-                <span class="guide-step__nr">1</span>
-                <h3 class="guide-step__title">Ondergrond</h3>
-              </div>
-              <button type="button" class="guide-jump" data-guide-jump="grond">Open</button>
-            </div>
-            <p class="guide-step__text">E-modulus bestaande bodem — geen dikte.</p>
-          </li>
-
-          <li class="guide-step guide-step--ogv">
-            <div class="guide-step__head">
-              <span class="guide-swatch guide-swatch--ogv" aria-hidden="true"></span>
-              <div>
-                <span class="guide-step__nr">2</span>
-                <h3 class="guide-step__title">Ondergrond verbetering</h3>
-              </div>
-              <button type="button" class="guide-jump" data-guide-jump="ogv">Open</button>
-            </div>
-            <p class="guide-step__text">Dikte + vulmateriaal, optioneel wapening.</p>
-          </li>
-
-          <li class="guide-step guide-step--fund">
-            <div class="guide-step__head">
-              <span class="guide-swatch guide-swatch--fund" aria-hidden="true"></span>
-              <div>
-                <span class="guide-step__nr">3</span>
-                <h3 class="guide-step__title">Fundering + overhoogte</h3>
-              </div>
-              <button type="button" class="guide-jump" data-guide-jump="fund">Open</button>
-            </div>
-            <p class="guide-step__text">Nominale dikte + overhoogte, wapening 100/150/200 mm.</p>
-          </li>
-
-          <li class="guide-step guide-step--boven">
-            <div class="guide-step__head">
-              <span class="guide-swatch guide-swatch--boven" aria-hidden="true"></span>
-              <div>
-                <span class="guide-step__nr">4</span>
-                <h3 class="guide-step__title">Bovenconstructie</h3>
-              </div>
-              <button type="button" class="guide-jump" data-guide-jump="boven">Open</button>
-            </div>
-            <p class="guide-step__text">Eén toplaag; telt in dikte, niet in Romfix-stijfheid.</p>
-          </li>
-        </ol>
-
-        <p class="guide-foot">Klik op een laag in het profiel om te bewerken. <strong>W</strong> = wapening aan.</p>
-      </section>
-
       <section class="kpi-bar" id="pakket-summary" aria-live="polite"></section>
 
       <section class="work-area">
         <div class="work-area__grid">
           <div class="card card--profile">
             <header class="card__head">
-              <h2 class="card__title">Profiel</h2>
-              <p class="card__sub">Gewapend vs ongewapend · zelfde diktes</p>
+              <h2 class="card__title" data-i18n>Profiel</h2>
+              <p class="card__sub" id="profile-sub">Alleen gewapend terwijl je invult</p>
             </header>
-            <div class="visual-compare">
+            <div class="visual-compare visual-compare--app" id="visual-compare-app">
               <section class="visual-col visual-col--gew">
                 <p class="visual-col-label">Gewapend</p>
-                <div class="visual" id="visual-gew" role="listbox" aria-label="Laagmodel gewapend"></div>
+                <div class="visual-row">
+                  <div class="maaiveld-rail" id="maaiveld-rail">
+                    <div class="maaiveld-rail__track" id="maaiveld-track">
+                      <button type="button" class="maaiveld-thumb" id="maaiveld-thumb" aria-label="Maaiveld" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+                        <span class="maaiveld-thumb__name" data-i18n>Maaiveld</span>
+                        <span class="maaiveld-thumb__mm" id="maaiveld-mm">0 mm</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="visual-wrap" id="visual-wrap">
+                    <div class="visual" id="visual-gew" role="listbox" aria-label="Laagmodel gewapend" data-i18n-aria></div>
+                    <div class="maaiveld-mark" id="maaiveld-mark" aria-hidden="true"></div>
+                  </div>
+                </div>
               </section>
-              <section class="visual-col visual-col--ong">
+              <section class="visual-col visual-col--ong" id="visual-col-ong" hidden>
                 <p class="visual-col-label">Ongewapend</p>
-                <div class="visual" id="visual-ong" role="listbox" aria-label="Laagmodel ongewapend"></div>
+                <div class="visual" id="visual-ong" role="listbox" aria-label="Laagmodel ongewapend" data-i18n-aria></div>
               </section>
             </div>
+            <p class="ongewapend-toggle-wrap" id="ongewapend-toggle-wrap">
+              <label class="ongewapend-toggle">
+                <input type="checkbox" id="toggle-ongewapend" />
+                <span data-i18n>Laat ongewapend zien</span>
+              </label>
+              <span class="ongewapend-toggle-hint" data-i18n>Vergelijking onder het gewapende profiel, zelfde diktes.</span>
+            </p>
           </div>
 
           <aside class="card card--input panel" id="panel-input">
@@ -129,32 +108,46 @@
               <h2 class="card__title" id="panel-title">Invoer</h2>
               <p class="card__sub panel-hint" id="panel-hint"></p>
             </header>
-            <nav class="layer-tabs" id="layer-tabs" aria-label="Lagen"></nav>
+            <nav class="layer-tabs" id="layer-tabs" aria-label="Lagen" data-i18n-aria></nav>
             <div id="panel-fields"></div>
           </aside>
         </div>
       </section>
 
+      <div class="export-bar no-print" id="export-bar">
+        <input type="text" id="project_naam" class="project-naam" placeholder="Projectnaam (voor PDF)" maxlength="80" aria-label="Projectnaam voor PDF en mail" data-i18n-placeholder data-i18n-aria />
+        <div class="export-bar__btns">
+          <button type="button" id="btnPrintPdf" class="export-btn" data-i18n>Printen / PDF</button>
+          <button type="button" id="btnDownloadPdf" class="export-btn export-btn--primary" data-i18n>Download PDF</button>
+          <button type="button" id="btnMail" class="export-btn" data-i18n>Mailen</button>
+          <button type="button" id="btnShare" class="export-btn" data-i18n>Link delen</button>
+        </div>
+        <p id="shareStatus" class="share-status" hidden></p>
+        <p id="pdf-fallback" class="pdf-fallback" hidden>
+          <a id="pdf-fallback-link" href="#" download="romfix-berekening.pdf" data-i18n>Tik hier om de PDF te openen</a>
+        </p>
+      </div>
+
       <section class="card card--table">
         <header class="card__head card__head--row">
           <div>
-            <h2 class="card__title">Stijfheidstabel</h2>
-            <p class="card__sub">MPa per laag en stijfheidsfactor</p>
+            <h2 class="card__title" data-i18n>Stijfheidstabel</h2>
+            <p class="card__sub" data-i18n>MPa per laag en stijfheidsfactor</p>
           </div>
-          <button type="button" id="table-toggle" class="table-toggle" aria-expanded="true" aria-controls="table-wrap">
-            Inklappen
+          <button type="button" id="table-toggle" class="table-toggle" aria-expanded="false" aria-controls="table-wrap">
+            Uitklappen
           </button>
         </header>
-        <div id="table-wrap" class="table-wrap">
+        <div id="table-wrap" class="table-wrap" hidden>
           <table class="table" id="table">
             <thead>
               <tr>
-                <th>Laag</th>
-                <th class="num">Dikte (mm)</th>
-                <th class="num">Wap. (mm)</th>
-                <th class="num">Zonder wapening</th>
-                <th class="num">Met wapening</th>
-                <th class="num">Factor</th>
+                <th data-i18n>Laag</th>
+                <th class="num" data-i18n>Dikte (mm)</th>
+                <th class="num" data-i18n>Wap. (mm)</th>
+                <th class="num col-ong" data-i18n>Zonder wapening</th>
+                <th class="num" data-i18n>Met wapening</th>
+                <th class="num col-ong" data-i18n>Factor</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -166,26 +159,27 @@
 
   <div id="expert-login" class="expert-login" hidden>
     <div class="expert-login__card" role="dialog" aria-labelledby="expert-login-title" aria-modal="true">
-      <h2 id="expert-login-title" class="expert-login__title">Expert mode</h2>
-      <p class="expert-login__text">Alleen voor bevoegde gebruikers. Capping en geavanceerde instellingen.</p>
-      <label class="expert-login__label" for="expert-password">Wachtwoord</label>
+      <h2 id="expert-login-title" class="expert-login__title" data-i18n>Expert mode</h2>
+      <p class="expert-login__text" data-i18n>Alleen voor bevoegde gebruikers. Capping en geavanceerde instellingen.</p>
+      <label class="expert-login__label" for="expert-password" data-i18n>Wachtwoord</label>
       <input type="password" id="expert-password" class="expert-login__input" autocomplete="current-password" />
-      <p id="expert-login-error" class="expert-login__error" hidden>Onjuist wachtwoord.</p>
+      <p id="expert-login-error" class="expert-login__error" hidden data-i18n>Onjuist wachtwoord.</p>
       <div class="expert-login__actions">
-        <button type="button" id="expert-login-cancel" class="expert-login__btn expert-login__btn--ghost">Annuleren</button>
-        <button type="button" id="expert-login-submit" class="expert-login__btn expert-login__btn--primary">Inloggen</button>
+        <button type="button" id="expert-login-cancel" class="expert-login__btn expert-login__btn--ghost" data-i18n>Annuleren</button>
+        <button type="button" id="expert-login-submit" class="expert-login__btn expert-login__btn--primary" data-i18n>Inloggen</button>
       </div>
     </div>
   </div>
 
   <footer class="container">
-    <p>Romfix sterkteberekening v2.3 · indicatief</p>
+    <p data-i18n>Romfix funderings rekenhulp v2.3 · indicatief</p>
   </footer>
 
   <div id="print-report" class="print-report" hidden></div>
 
-  <script src="excel-exact.js?v=20260831-ogv-sif"></script>
-  <script src="mif-tables.js?v=20260626-4"></script>
-  <script src="app.js?v=20260831-no-invoer"></script>
+  <script src="excel-exact.js?v=20260907-paul"></script>
+  <script src="mif-tables.js?v=20260909-mifclamp"></script>
+  <script src="i18n.js?v=20261102-puimsteen"></script>
+  <script src="app.js?v=20261102-puimsteen"></script>
 </body>
 </html>

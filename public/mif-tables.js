@@ -94,16 +94,30 @@
   function lookupMif(typeId, eOnderbouw, eInfill) {
     const norm = WAPENING_ID_ALIASES[typeId] || typeId;
     const meta = MIF_TABLE_META[norm] || MIF_TABLE_META.grid_cell;
-    const x = Math.max(1, Number(eOnderbouw) || 1);
-    const y = Math.max(1, Number(eInfill) || 1);
-    let base = mifInterpGrid(x, y, meta.grid);
+    const xRaw = Math.max(1, Number(eOnderbouw) || 1);
+    const yRaw = Math.max(1, Number(eInfill) || 1);
+    const xMin = MIF_SUB[0];
+    const xMax = MIF_SUB[MIF_SUB.length - 1];
+    const yMin = MIF_INF[0];
+    const yMax = MIF_INF[MIF_INF.length - 1];
+    const x = Math.max(xMin, Math.min(xMax, xRaw));
+    const yTable = Math.max(yMin, Math.min(yMax, yRaw));
+    let base = mifInterpGrid(x, yTable, meta.grid);
     if (meta.scale) base *= meta.scale;
+    if (yRaw > yMax) {
+      /**
+       * Tabel stopt bij 250. Extra stijfheid van de wapening blijft
+       * (zelfde absolute plus als bij 250 MPa), maar niet 2–3× de cataloguswaarde.
+       * 600 × MIF@250 gaf 1668; zo wordt het 600 + (MIF@250−1)×250.
+       */
+      base = 1 + (base - 1) * (yMax / yRaw);
+    }
     return {
       mif: Math.round(Math.max(1, Math.min(20, base)) * 100) / 100,
       tabel: meta.label,
       typeId: meta.id,
       eOnderbouw: Math.round(x),
-      eInfill: Math.round(y),
+      eInfill: Math.round(yRaw),
     };
   }
 
