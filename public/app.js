@@ -284,7 +284,7 @@
       ],
     },
     ogv: {
-      dikte: [{ key: "ogvDikte", label: "Dikte", unit: "mm", min: 50, max: 600, step: 10 }],
+      dikte: [{ key: "ogvDikte", label: "Dikte", unit: "mm", min: 0, max: 600, step: 10 }],
       materiaal: [{ key: "eOgv", label: "E-modulus vulmateriaal", unit: "MPa", min: 30, max: 600, step: 1 }],
       wapening: [
         { key: "wapOgv", label: "Werkingsdikte wapening", unit: "mm", min: 50, max: 400, step: 10 },
@@ -773,6 +773,11 @@
       materiaalFieldHtmlLabeled(drukFld, "Druklaag") +
       materiaalFieldHtmlLabeled(lichtFld, activeLichtLabel()) +
       "</div>" +
+      '<div class="field-section" data-druklaag-onafhankelijk="1">' +
+      '<div class="field-section-title">Wapening druklaag</div>' +
+      wapeningTypeHtml("druklaag", false, { compact: true, label: "" }) +
+      '<p class="field-note">Los van de wapening op de fundering. Standaard geogrid bij een gewapende fundering.</p>' +
+      "</div>" +
       (wapUit
         ? ""
         : '<div class="field-section">' +
@@ -802,10 +807,18 @@
       (opts.includeToggle === false ? "" : wapeningToggleHtml("fund")) +
       '<div class="layer-stack">' +
       lichtLayerCardHtml(
+        "druk",
+        "Wapening druklaag",
+        '<div data-druklaag-onafhankelijk="1">' +
+          wapeningTypeHtml("druklaag", false, compact) +
+          '<p class="field-note">Los van de wapening op de fundering. Standaard geogrid bij een gewapende fundering.</p>' +
+          "</div>"
+      ) +
+      lichtLayerCardHtml(
         "onder",
         "Wapening onderlaag",
         wapeningTypeHtml("fund-licht", disabled, compact) +
-          '<p class="field-note">Op de onderlaag kies je de wapening. De druklaag heeft standaard geogrid. Overhoogte blijft ongewapend.</p>'
+          '<p class="field-note">Op de onderlaag kies je de wapening. De druklaag stel je hierboven apart in. Overhoogte blijft ongewapend.</p>'
       ) +
       "</div>" +
       factorLegendNote() +
@@ -829,6 +842,7 @@
     values.eFundering = target.mpa;
     values.druklaagAan = false;
     values.eLichtFundering = values.eFundering;
+    values.drukWapVrij = false;
     if (selected === "fund-licht" || selected === "fund-druk") selected = "fund";
     invalidateCalcCache();
     render();
@@ -856,7 +870,10 @@
         materiaalKeuze.eDruklaag = "Steenslag/steenmengsels";
       }
       clampDruklaagDiktes();
-      if (!wasDruklaag) values.wapTypeFund = WAPENING_DRUKLAAG_TYPE;
+      if (!wasDruklaag) {
+        values.wapTypeFund = WAPENING_DRUKLAAG_TYPE;
+        values.drukWapVrij = false;
+      }
       lockLichtWapeningTypes();
       if (!wasDruklaag && (selected === "fund" || selected === "fund-druk")) {
         selected = "fund-licht";
@@ -866,6 +883,7 @@
       values.eLichtFundering = values.eFundering;
       values.sifLicht = 0;
       values.mifLicht = 0;
+      values.drukWapVrij = false;
       if (wasDruklaag) {
         values.wapTypeFund = WAPENING_TYPE_DEFAULT;
         const def = wapeningTypeById(WAPENING_TYPE_DEFAULT);
@@ -886,6 +904,33 @@
     return normalizeWapeningId(values.wapTypeFund || WAPENING_DRUKLAAG_TYPE);
   }
 
+  /**
+   * Effectieve wapening van de druklaag.
+   * Zolang de gebruiker het extra veld niet zelf heeft gezet, volgt die de
+   * funderingswapening: aan = geogrid (huidig gedrag), uit = ongewapend.
+   * Na een eigen keuze geldt het veld los van de fundering.
+   */
+  function effectiveDrukTypeId(fundOn) {
+    if (!isDruklaagActief()) return "none";
+    if (values.drukWapVrij) return druklaagWapeningTypeId();
+    return fundOn ? normalizeWapeningId(values.wapTypeFund || WAPENING_DRUKLAAG_TYPE) : "none";
+  }
+
+  function druklaagOptieLabel(t) {
+    if (!t || t.id === "none") return "Ongewapend";
+    if (t.id === "grid_only") return "Geogrid";
+    if (t.id === "grid_cell") return "Romfix-systeem";
+    if (t.id === "cell_only") return "Alleen geocel";
+    return t.label;
+  }
+
+  function druklaagVisueelNaam(typeId) {
+    const id = normalizeWapeningId(typeId);
+    if (!typeHasSif(id)) return "";
+    if (id === "grid_only") return "Geogrid (E'Grid 30/30)";
+    return druklaagOptieLabel(wapeningTypeById(id));
+  }
+
   function typeHasSif(typeId) {
     const t = wapeningTypeById(typeId);
     return !!(t && t.id !== "none" && t.sif > 0);
@@ -895,9 +940,16 @@
     return typeHasSif(lichtWapeningTypeId());
   }
 
-  /** Druklaag heeft geen keuze: bij wapening aan altijd geogrid (E'Grid, SIF 5). */
+  /** Huidige druklaag: geogrid zolang de fundering gewapend is, tenzij het veld zelf is gezet. */
   function druklaagHasWapening() {
-    return !!(wapeningFund && isDruklaagActief());
+    return typeHasSif(effectiveDrukTypeId(!!wapeningFund));
+  }
+
+  function druklaagReinforcedMm(drukBasis, typeId) {
+    if (!typeHasSif(typeId)) return 0;
+    const basis = Math.max(0, Number(drukBasis) || 0);
+    if (typeHasRcel(typeId)) return cellFillSplit(basis).wapMm;
+    return basis;
   }
 
   function syncSifFromWapeningTypes() {
@@ -916,11 +968,11 @@
   function syncMifFromWapening() {
     if (typeof window.RomfixMif === "undefined") return;
     if (isDruklaagActief()) lockLichtWapeningTypes();
-    if (wapeningFund) {
+    if (wapeningFund || (isDruklaagActief() && druklaagHasWapening())) {
       const onderbouw = mifOnderbouwFund();
       if (isDruklaagActief()) {
-        const drukType = druklaagWapeningTypeId();
-        if (druklaagHasWapening()) {
+        const drukType = effectiveDrukTypeId(!!wapeningFund);
+        if (typeHasSif(drukType)) {
           const drukInfo = window.RomfixMif.lookupMif(
             drukType,
             onderbouw,
@@ -933,7 +985,7 @@
           mifLookupMeta.fund = null;
         }
         const lichtType = lichtWapeningTypeId();
-        if (lichtHasWapening()) {
+        if (wapeningFund && lichtHasWapening()) {
           const lichtInfo = window.RomfixMif.lookupMif(
             lichtType,
             onderbouw,
@@ -1115,6 +1167,8 @@
         tf: runCalc(true, false),
         ft: runCalc(false, true),
         tt: runCalc(true, true),
+        kf: runCalc(false, false, true),
+        kt: runCalc(false, true, true),
       };
     }
     return calcCache;
@@ -1126,6 +1180,12 @@
     if (fundWap && !ogvWap) return c.tf;
     if (!fundWap && ogvWap) return c.ft;
     return c.tt;
+  }
+
+  /** Volledig ongewapend, ook als de druklaag een eigen wapening heeft. */
+  function calcKale(ogvWap) {
+    const c = getCalcCache();
+    return ogvWap ? c.kt : c.kf;
   }
 
   function wapeningForLayer(id) {
@@ -1197,8 +1257,13 @@
     };
   }
 
-  function excelInvoer(fundOn, ogvOn) {
-    const f = fundMeta(fundOn);
+  function excelInvoer(fundOn, ogvOn, kale) {
+    const f = fundMeta(kale ? false : fundOn);
+    const drukTypeId = kale ? "none" : effectiveDrukTypeId(!!fundOn);
+    const drukOn = !!(f.druklaagAan && typeHasSif(drukTypeId));
+    const drukMm = drukOn ? druklaagReinforcedMm(f.drukBasis, drukTypeId) : 0;
+    const drukSif = drukOn ? (wapeningTypeById(drukTypeId).sif || 0) : 0;
+    const fundSifAan = !kale && !!fundOn && !f.druklaagAan;
     const inp = {
       sheet,
       B12: values.bovenDikte,
@@ -1207,10 +1272,15 @@
       C13: f.druklaagAan ? f.eDruk : values.eFundering,
       C14: values.eOgv,
       C15: values.eOndergrond,
-      B19: fundOn ? f.wapDikte : 0,
-      B20: ogvOn ? values.wapOgv : 0,
-      D19:
-        fundOn && (!f.druklaagAan || druklaagHasWapening())
+      B19: f.druklaagAan ? drukMm : fundSifAan ? f.wapDikte : 0,
+      B20: !kale && ogvOn ? values.wapOgv : 0,
+      D19: f.druklaagAan
+        ? drukOn
+          ? isFunderingVast()
+            ? 99.9
+            : drukSif
+          : 0
+        : fundSifAan
           ? isFunderingVast()
             ? 99.9
             : values.sifFundering
@@ -1223,18 +1293,18 @@
     if (f.druklaagAan && f.lichtDikte > 0) {
       inp.B13Licht = f.lichtDikte;
       inp.C13Licht = f.eLicht;
-      inp.sifLicht = fundOn && lichtHasWapening() ? values.sifLicht || 0 : 0;
+      inp.sifLicht = !kale && fundOn && lichtHasWapening() ? values.sifLicht || 0 : 0;
       inp.mifLicht = values.mifLicht;
-      if (fundOn && f.lichtSplit) inp.lichtWapMm = f.lichtSplit.wapMm;
+      if (!kale && fundOn && f.lichtSplit) inp.lichtWapMm = f.lichtSplit.wapMm;
     }
     return inp;
   }
 
-  /** fundWap / ogvWap: expliciet per laag; undefined = huidige schakelaar */
-  function runCalc(fundWap, ogvWap) {
+  /** fundWap / ogvWap: expliciet per laag; undefined = huidige schakelaar. kale = alles uit. */
+  function runCalc(fundWap, ogvWap, kale) {
     const fundOn = fundWap === undefined ? wapeningFund : fundWap;
     const ogvOn = ogvWap === undefined ? wapeningOgv : ogvWap;
-    return window.computeRomfixWerkboek(excelInvoer(fundOn, ogvOn));
+    return window.computeRomfixWerkboek(excelInvoer(fundOn, ogvOn, !!kale));
   }
 
   function ogvLabel() {
@@ -1415,7 +1485,8 @@
       bovenDikte: (activeLaag ? activeLaag.defaultMm : 0) + straatzandMm,
       funderingBasis: p.funderingBasis,
       overhoogte: p.overhoogte,
-      ogvDikte: p.ogvDikte,
+      ogvDikte: 0,
+      drukWapVrij: false,
       eFundering: p.eFundering,
       eOgv: p.eOgv,
       eOndergrond: p.eOndergrond,
@@ -1456,12 +1527,14 @@
 
   function wapeningTypeKey(layer) {
     if (layer === "fund-licht") return "wapTypeLicht";
-    return layer === "fund" ? "wapTypeFund" : "wapTypeOgv";
+    if (layer === "druklaag" || layer === "fund") return "wapTypeFund";
+    return "wapTypeOgv";
   }
 
   function sifKeyForLayer(layer) {
     if (layer === "fund-licht") return "sifLicht";
-    return layer === "fund" ? "sifFundering" : "sifOgv";
+    if (layer === "druklaag" || layer === "fund") return "sifFundering";
+    return "sifOgv";
   }
 
   function wapeningTypeLabel(typeId, layer) {
@@ -1502,11 +1575,13 @@
     const typeKey = wapeningTypeKey(layer);
     const sifKey = sifKeyForLayer(layer);
     const curType = normalizeWapeningId(
-      layer === "fund-licht"
-        ? lichtWapeningTypeId()
-        : layer === "fund" && isDruklaagActief()
-          ? druklaagWapeningTypeId()
-          : values[typeKey] || WAPENING_TYPE_DEFAULT
+      layer === "druklaag"
+        ? effectiveDrukTypeId(!!wapeningFund)
+        : layer === "fund-licht"
+          ? lichtWapeningTypeId()
+          : layer === "fund" && isDruklaagActief()
+            ? druklaagWapeningTypeId()
+            : values[typeKey] || WAPENING_TYPE_DEFAULT
     );
     const cur = wapeningTypeById(curType);
     let opts = "";
@@ -1517,7 +1592,7 @@
         '"' +
         (curType === t.id ? " selected" : "") +
         ">" +
-        wapeningOptionLabel(t, !!htmlOpts.compact, layer) +
+        (layer === "druklaag" ? druklaagOptieLabel(t) : wapeningOptionLabel(t, !!htmlOpts.compact, layer)) +
         "</option>";
     });
     const rcelNote = htmlOpts.compact
@@ -1532,7 +1607,7 @@
         ? htmlOpts.label
         : layer === "fund-licht"
           ? "Wapening schuimglas / puimsteen"
-          : layer === "fund" && isDruklaagActief()
+          : layer === "druklaag" || (layer === "fund" && isDruklaagActief())
             ? "Wapening druklaag"
             : "Wapeningsconfiguratie";
     const labelHtml = wapLabel
@@ -1553,6 +1628,7 @@
       layer +
       '"' +
       (wapLabel ? "" : ' aria-label="' + (layer === "fund-licht" ? "Wapening schuimglas" : "Wapening druklaag") + '"') +
+      (layer === "druklaag" ? ' data-druklaag-wap="1"' : "") +
       (disabled ? " disabled" : "") +
       ">" +
       opts +
@@ -1562,9 +1638,11 @@
       '">' +
       sifFieldLabel(layer) +
       ': <strong>' +
-      formatFactor(values[sifKey]) +
+      formatFactor(layer === "druklaag" ? (cur && cur.sif) || 0 : values[sifKey]) +
       "</strong>" +
-      (cur && cur.id !== "none" ? " · " + wapeningOptionLabel(cur, false, layer) : "") +
+      (cur && cur.id !== "none"
+        ? " · " + (layer === "druklaag" ? druklaagOptieLabel(cur) : wapeningOptionLabel(cur, false, layer))
+        : "") +
       "</p>" +
       (htmlOpts.compact ? "" : rcelNote) +
       (typeHasRcel(curType)
@@ -1628,6 +1706,20 @@
     ) {
       return;
     }
+    if (layer === "druklaag") {
+      values.drukWapVrij = true;
+      values.wapTypeFund = t.id;
+      values.sifFundering = t.sif;
+      syncMifFromWapening();
+      invalidateCalcCache();
+      if (expertMode) {
+        expertDashBuilt = false;
+        render();
+        return;
+      }
+      render();
+      return;
+    }
     values[wapeningTypeKey(layer)] = t.id;
     values[sifKeyForLayer(layer)] = t.sif;
     if (layer === "ogv") wapeningOgv = t.id !== "none";
@@ -1662,6 +1754,8 @@
   const VISUAL_HEIGHT_MIN = 280;
   const VISUAL_HEIGHT_MAX = 960;
   const GROND_VISUAL_RATIO = 0.075;
+  let visualPxPerMm = 0.72;
+  let visualLayerMinPx = 34;
   /** Minimale hoogte in profiel als laag 0 mm is — blijft zichtbaar met label + MPa */
   const MIN_LAYER_VISUAL_PX = 48;
 
@@ -1682,9 +1776,16 @@
     return n + "%";
   }
 
+  /** Volledig ongewapend pakket — ook als de druklaag een eigen keuze heeft. */
+  function profielKaalMpa() {
+    const k = calcKale(false);
+    const fund = isDruklaagActief() ? k.output.E13 : k.output.D13;
+    return { fund: Number(fund) || 0, ogv: Number(k.output.D14) || 0 };
+  }
+
   /** Zelfde getallen als de koppen Ongewapend en Gewapend. */
   function stijfheidPercentages() {
-    const ong = profielConstructieMpa(false, false);
+    const ong = profielKaalMpa();
     const gew = profielConstructieMpa(wapeningFund, wapeningOgv);
     return {
       fund: pctMeer(ong.fund, gew.fund),
@@ -2396,14 +2497,60 @@
     return Math.min(maxH, Math.max(minH, Math.round(total * VISUAL_PX_PER_MM)));
   }
 
+  /** Ruimte onder de kop, zodat het hele profiel in het telefoonscherm past. */
+  function mobileVisualBudget() {
+    const vh = window.innerHeight || 700;
+    const cols = showOngewapend ? 2 : 1;
+    const visual = document.getElementById("visual-gew");
+    let start = 0;
+    if (visual) {
+      const top = visual.getBoundingClientRect().top;
+      if (top > 48 && top < vh * 0.85) start = top;
+    }
+    if (!start) start = Math.min(400, Math.round(vh * 0.5));
+    const below = showOngewapend ? 24 : 76;
+    return Math.max(188, Math.round((vh - start - below) / cols));
+  }
+
+  /** Op een telefoon schaalt het hele profiel mee, zodat de onderste lagen in beeld blijven. */
+  function prepareVisualScale() {
+    if (!isMobileViewport()) {
+      visualPxPerMm = 0.72;
+      visualLayerMinPx = 34;
+      return;
+    }
+    const budget = mobileVisualBudget();
+    const total = Math.max(1, visualProfielTotaalMm());
+    visualPxPerMm = Math.max(0.12, (budget - 20) / total);
+    visualLayerMinPx = 32;
+  }
+
   function flexMm(mm) {
     return Math.max(0, Number(mm) || 0);
   }
 
   function layerPx(mm, placeholder) {
     const w = flexMm(mm);
-    if (w <= 0) return placeholder ? MIN_LAYER_VISUAL_PX : 0;
-    return Math.max(34, Math.round(w * 0.72));
+    if (w <= 0) return placeholder ? (isMobileViewport() ? 36 : MIN_LAYER_VISUAL_PX) : 0;
+    return Math.max(visualLayerMinPx, Math.round(w * visualPxPerMm));
+  }
+
+  function fitMobileVisual(el) {
+    if (!el) return;
+    el.style.zoom = "";
+    if (!isMobileViewport()) {
+      el.classList.remove("visual--dense");
+      return;
+    }
+    const budget = mobileVisualBudget();
+    const h = el.getBoundingClientRect().height;
+    if (h < 40 || h <= budget + 6) {
+      el.classList.remove("visual--dense");
+      return;
+    }
+    const s = Math.max(0.42, Math.round((budget / h) * 1000) / 1000);
+    el.style.zoom = String(s);
+    el.classList.toggle("visual--dense", s < 0.8);
   }
 
   function flexStyle(mm, placeholder) {
@@ -2601,10 +2748,27 @@
     return ong.replace(" MPa", "") + " → " + gew;
   }
 
+  let visualKale = false;
+
+  function liveFundState(fundOn, ogvOn) {
+    if (visualKale && values.drukWapVrij) return calcKale(false).state;
+    return calcAt(!!fundOn, !!ogvOn).state;
+  }
+
   function drukLaagMpaHtml(fundOn, gewState, f, geogrid) {
     if (isFunderingVast()) return mpaVal(f.eDruk) + " vul";
-    const st = fundOn && gewState ? gewState : calcAt(false, wapeningOgv).state;
-    if (geogrid && fundOn && st.C26 > 0) {
+    const st =
+      visualKale && values.drukWapVrij
+        ? calcKale(false).state
+        : fundOn && gewState
+          ? gewState
+          : calcAt(false, wapeningOgv).state;
+    const toonWap =
+      !(visualKale && values.drukWapVrij) &&
+      geogrid &&
+      st.C26 > 0 &&
+      (fundOn || values.drukWapVrij);
+    if (toonWap) {
       const base = mpaVal(f.eDruk);
       const gew = mpaVal(st.C26);
       if (base === gew) return gew;
@@ -3735,17 +3899,35 @@
         );
       }
       if (f.drukBasis > 0) {
-        parts.push(
-          segmentBtn(
+        const drukTypeId = visualKale ? "none" : effectiveDrukTypeId(fundOn);
+        const drukNaam = druklaagVisueelNaam(drukTypeId);
+        const drukSplit = typeHasRcel(drukTypeId) ? cellFillSplit(f.drukBasis) : null;
+        const drukMpa = drukLaagMpaHtml(fundOn, liveFundState(fundOn, ogvOn), f, !!drukNaam);
+        if (drukSplit && drukSplit.cell > 0 && (drukSplit.fillOng > 0 || drukSplit.fillGew > 0)) {
+          appendCellSplitParts(
+            parts,
             "fund-druk",
-            "druk",
-            "Druklaag · " + drukMatNaam + (fundOn ? " · Geogrid (E'Grid 30/30)" : ""),
-            f.drukBasis,
-            drukLaagMpaHtml(fundOn, gew.state, f, fundOn),
-            f.drukBasis,
-            placeholder
-          )
-        );
+            drukSplit,
+            function (b) {
+              if (b.kind === "ong") return drukLaagMpaHtml(false, null, f, false);
+              return drukMpa;
+            },
+            { ong: "druk", vul: "gewap", cel: "gewap" },
+            "Druklaag · " + drukMatNaam + (drukNaam ? " · " + drukNaam : "")
+          );
+        } else {
+          parts.push(
+            segmentBtn(
+              "fund-druk",
+              "druk",
+              "Druklaag · " + drukMatNaam + (drukNaam ? " · " + drukNaam : ""),
+              f.drukBasis,
+              drukMpa,
+              f.drukBasis,
+              placeholder
+            )
+          );
+        }
       }
       if (f.lichtDikte > 0) {
         const lichtAan = fundOn && lichtHasWapening();
@@ -3966,7 +4148,8 @@
     );
   }
 
-  function renderProfielHtml(fundWap, ogvWap) {
+  function renderProfielHtml(fundWap, ogvWap, kale) {
+    visualKale = !!kale;
     let html = renderBovenVisual();
     html += renderOnderconstructieVisual(fundWap, ogvWap);
     const grondMm = grondVisualMm();
@@ -4018,7 +4201,7 @@
       const el = label && label.querySelector(".visual-col-label");
       if (el) {
         const fundWapZichtbaar = isDruklaagActief()
-          ? wapeningFund && lichtHasWapening()
+          ? (wapeningFund && lichtHasWapening()) || druklaagHasWapening()
           : wapeningFund;
         const wapAan = fundWapZichtbaar || wapeningOgv;
         el.classList.toggle("visual-col-label--rust", !wapAan);
@@ -4041,7 +4224,10 @@
         el.innerHTML =
           tx("Ongewapend") +
           '<span class="visual-col-mpa">' +
-          profielConstructieMpaText(false, false) +
+          (function () {
+            const m = profielKaalMpa();
+            return m.fund + " / " + m.ogv + " MPa";
+          })() +
           "</span>" +
           '<span class="visual-col-mpa-sub">' +
           tx("Fundering") +
@@ -4098,8 +4284,9 @@
 
   function mountVisual(gewEl, ongEl, bindClicks) {
     if (!gewEl && !ongEl) return;
-    const htmlGew = renderProfielHtml(wapeningFund, wapeningOgv);
-    const htmlOng = renderProfielHtml(false, false);
+    prepareVisualScale();
+    const htmlGew = renderProfielHtml(wapeningFund, wapeningOgv, false);
+    const htmlOng = renderProfielHtml(false, false, true);
 
     if (gewEl) {
       gewEl.style.height = "auto";
@@ -4113,6 +4300,9 @@
       const col = ongEl.closest(".visual-col");
       if (col && col.id === "visual-col-ong") col.hidden = !showOngewapend;
     }
+    visualKale = false;
+    fitMobileVisual(gewEl);
+    fitMobileVisual(ongEl);
     updateVisualColLabels(gewEl, ongEl);
   }
 
@@ -4297,6 +4487,7 @@
     const f = fundMeta(wapeningFund);
     const fundOng = calcAt(false, wapeningOgv);
     const fundGew = calcAt(true, wapeningOgv);
+    const fundNu = calcAt(wapeningFund, wapeningOgv);
     const ogvOng = calcAt(wapeningFund, false);
     const ogvGew = calcAt(wapeningFund, true);
 
@@ -4386,16 +4577,16 @@
             "↳ ↳ Druklaag · " +
             (materiaalNaamMpa(materiaalMatch("eDruklaag", MATERIAAL_DRUKLAAG), f.eDruk) || "druklaag") +
             " · " +
-            (wapeningFund && druklaagHasWapening()
-              ? (wapeningTypeById(druklaagWapeningTypeId()) || {}).product || "E'Grid"
+            (druklaagHasWapening()
+              ? (wapeningTypeById(effectiveDrukTypeId(!!wapeningFund)) || {}).product || "E'Grid"
               : "ongewapend"),
           dikte: String(f.drukBasis) + (f.oh > 0 ? " + overhoogte " + f.oh + " ongewapend" : ""),
-          wapMm: wapeningFund && druklaagHasWapening()
-            ? (wapeningTypeById(druklaagWapeningTypeId()) || {}).product || "E'Grid"
+          wapMm: druklaagHasWapening()
+            ? (wapeningTypeById(effectiveDrukTypeId(!!wapeningFund)) || {}).product || "E'Grid"
             : "—",
           ong: f.eDruk,
-          gew: wapeningFund && druklaagHasWapening() ? fundGew.state.C26 || f.eDruk : f.eDruk,
-          wap: wapeningFund && druklaagHasWapening(),
+          gew: druklaagHasWapening() ? fundNu.state.C26 || f.eDruk : f.eDruk,
+          wap: druklaagHasWapening(),
           sub: true,
         },
         {
@@ -4959,6 +5150,7 @@
       if (!section) return;
       section.querySelectorAll(".field").forEach(function (fieldEl) {
         if (fieldEl.querySelector("[data-expert-wap]")) return;
+        if (fieldEl.closest("[data-druklaag-onafhankelijk]")) return;
         fieldEl.classList.toggle("field--disabled", !on);
         fieldEl.querySelectorAll("input, select").forEach(function (inp) {
           inp.disabled = !on;
@@ -4976,18 +5168,20 @@
     });
     const constructieEl = document.getElementById("constructie-type");
     if (constructieEl) constructieEl.value = values.constructieType;
-    ["fund", "ogv", "fund-licht"].forEach(function (layer) {
+    ["fund", "ogv", "fund-licht", "druklaag"].forEach(function (layer) {
       const sel = document.getElementById("wap-type-" + layer);
       const note = document.getElementById("wap-type-note-" + layer);
       const typeKey = wapeningTypeKey(layer);
       const sifKey = sifKeyForLayer(layer);
       const allowed = wapeningTypesForLayer(layer);
       const curType = normalizeWapeningId(
-        layer === "fund" && isDruklaagActief()
-          ? WAPENING_DRUKLAAG_TYPE
-          : layer === "fund-licht"
-            ? lichtWapeningTypeId()
-            : values[typeKey] || WAPENING_TYPE_DEFAULT
+        layer === "druklaag"
+          ? effectiveDrukTypeId(!!wapeningFund)
+          : layer === "fund" && isDruklaagActief()
+            ? WAPENING_DRUKLAAG_TYPE
+            : layer === "fund-licht"
+              ? lichtWapeningTypeId()
+              : values[typeKey] || WAPENING_TYPE_DEFAULT
       );
       const cur = wapeningTypeById(curType);
       if (sel) {
@@ -4999,25 +5193,27 @@
               '"' +
               (curType === t.id ? " selected" : "") +
               ">" +
-              wapeningOptionLabel(t, false, layer) +
+              (layer === "druklaag" ? druklaagOptieLabel(t) : wapeningOptionLabel(t, false, layer)) +
               "</option>"
             );
           })
           .join("");
         sel.value = curType;
         sel.disabled =
-          allowed.length === 1 ||
-          (layer === "fund" && !wapeningFund) ||
-          (layer === "ogv" && !wapeningOgv) ||
-          (layer === "fund-licht" && !wapeningFund);
+          layer === "druklaag"
+            ? false
+            : allowed.length === 1 ||
+              (layer === "fund" && !wapeningFund) ||
+              (layer === "ogv" && !wapeningOgv) ||
+              (layer === "fund-licht" && !wapeningFund);
       }
       if (note) {
         note.innerHTML =
           sifFieldLabel(layer) +
           ': <strong>' +
-          formatFactor(values[sifKey]) +
+          formatFactor(layer === "druklaag" ? (cur && cur.sif) || 0 : values[sifKey]) +
           "</strong>" +
-          (cur ? " · " + cur.product : "");
+          (cur ? " · " + (layer === "druklaag" ? druklaagOptieLabel(cur) : cur.product) : "");
       }
     });
     renderSheetTabs();
@@ -5410,6 +5606,7 @@
       numOr(asfaltLaagMm(ASFALT_LAGEN[1]), 0),
       numOr(asfaltLaagMm(ASFALT_LAGEN[2]), 0),
       numOr(v.maaiveldMm, 0),
+      v.drukWapVrij ? "1" : "0",
     ].join("|");
   }
 
@@ -5485,6 +5682,7 @@
     }
     if (p.length > 39 && p[39] !== "") values.maaiveldMm = Number(p[39]) || 0;
     else if (values.maaiveldMm == null) values.maaiveldMm = 0;
+    values.drukWapVrij = p.length > 40 && p[40] === "1";
     syncBovenDikte();
     syncFunderingModusVanMateriaal();
     visitedGroups.grond = true;
@@ -5629,7 +5827,7 @@
       naamBytes = [];
     }
     if (naamBytes.length > 180) naamBytes = naamBytes.slice(0, 180);
-    w.write(3, 4);
+    w.write(4, 4);
     w.write(sheet === "capping" ? 1 : 0, 1);
     w.write(wapeningFund ? 1 : 0, 1);
     w.write(wapeningOgv ? 1 : 0, 1);
@@ -5671,6 +5869,7 @@
       w.write(shareU16(asfaltLaagMm(laag)), 16);
     });
     w.write(shareU16(v.maaiveldMm), 16);
+    w.write(v.drukWapVrij ? 1 : 0, 1);
     w.write(naamBytes.length, 8);
     naamBytes.forEach(function (b) {
       w.write(b, 8);
@@ -5683,7 +5882,7 @@
     if (!bytes || !bytes.length) return false;
     var r = shareBitReader(bytes);
     var shareVer = r.read(4);
-    if (shareVer !== 1 && shareVer !== 2 && shareVer !== 3) return false;
+    if (shareVer !== 1 && shareVer !== 2 && shareVer !== 3 && shareVer !== 4) return false;
     sheet = r.read(1) ? "capping" : "roadbase";
     wapeningFund = r.read(1) === 1;
     wapeningOgv = r.read(1) === 1;
@@ -5728,7 +5927,8 @@
     } else if (values.bovenToplaag === "asfalt") {
       splitAsfaltTotal(values.bovenAsfalt);
     }
-    values.maaiveldMm = shareVer === 3 ? nums[20] : 0;
+    values.maaiveldMm = shareVer >= 3 ? nums[20] : 0;
+    values.drukWapVrij = shareVer >= 4 ? r.read(1) === 1 : false;
     materiaalKeuze = { eFundering: matF, eOgv: matO, eOndergrond: matG, eDruklaag: matD };
     var naamLen = r.read(8);
     var naamBytes = [];
@@ -6157,9 +6357,10 @@
     }
     if (f.druklaagAan) {
       const lichtMat = materiaalMatch("eFundering", MATERIAAL_LAAG);
-      const drukType = wapeningTypeById(druklaagWapeningTypeId());
+      const drukType = wapeningTypeById(effectiveDrukTypeId(!!wapeningFund));
       const lichtType = wapeningTypeById(lichtWapeningTypeId());
-      const drukNaam = wapeningFund && druklaagHasWapening()
+      const drukNu = calcAt(wapeningFund, wapeningOgv);
+      const drukNaam = druklaagHasWapening()
         ? wapeningOptionLabel(drukType, false, "fund")
         : "ongewapend";
       const lichtNaam = wapeningFund && lichtHasWapening()
@@ -6168,10 +6369,10 @@
       tableRows.push([
         "    Druklaag · " + (materiaalKeuze.eDruklaag || "druklaag") + " · " + drukNaam,
         fmtMm(f.drukBasis),
-        wapeningFund && druklaagHasWapening() ? "SIF " + formatFactor(drukType ? drukType.sif : 5) : "—",
+        druklaagHasWapening() ? "SIF " + formatFactor(drukType ? drukType.sif : 5) : "—",
         fmtMpa(f.eDruk),
-        fmtMpa(wapeningFund && druklaagHasWapening() ? fundGew.state.C26 || f.eDruk : f.eDruk),
-        wapeningFund && druklaagHasWapening() ? factor(f.eDruk, fundGew.state.C26 || f.eDruk) + "×" : "—",
+        fmtMpa(druklaagHasWapening() ? drukNu.state.C26 || f.eDruk : f.eDruk),
+        druklaagHasWapening() ? factor(f.eDruk, drukNu.state.C26 || f.eDruk) + "×" : "—",
       ]);
       tableRows.push([
         "    " + ((lichtMat && lichtMat.label) || "Licht") + " · " + lichtNaam,
@@ -6244,8 +6445,8 @@
           (materiaalKeuze.eDruklaag || "") +
           " · " +
           fmtMpa(f.eDruk) +
-          (wapeningFund && druklaagHasWapening()
-            ? " · " + wapeningOptionLabel(wapeningTypeById(WAPENING_DRUKLAAG_TYPE), false, "fund")
+          (druklaagHasWapening()
+            ? " · " + wapeningOptionLabel(wapeningTypeById(effectiveDrukTypeId(!!wapeningFund)), false, "fund")
             : ""),
       ]);
       if (wapeningFund && f.lichtSplit) {

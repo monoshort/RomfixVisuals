@@ -196,6 +196,12 @@
     "Geen wapening": "No reinforcement",
     "Alleen geogrid": "Geogrid only",
     "Alleen geocel": "Geocell only",
+    "Wapening druklaag": "Pressure-layer reinforcement",
+    "Romfix-systeem": "Romfix system",
+    "Los van de wapening op de fundering. Standaard geogrid bij een gewapende fundering.":
+      "Independent of the foundation reinforcement. Geogrid by default when the foundation is reinforced.",
+    "Op de onderlaag kies je de wapening. De druklaag stel je hierboven apart in. Overhoogte blijft ongewapend.":
+      "Choose the reinforcement on the lower layer. Set the pressure layer above, separately. The surcharge stays unreinforced.",
     "Geogrid + geocel": "Geogrid + geocell",
     "Zonder wapening → met wapening": "Unreinforced → reinforced",
     "Zonder wapening": "Unreinforced",
@@ -591,6 +597,12 @@
     "Geen wapening": "Ingen armering",
     "Alleen geogrid": "Kun geonet",
     "Alleen geocel": "Kun gecelle",
+    "Wapening druklaag": "Armering trykfordelingslag",
+    "Romfix-systeem": "Romfix-system",
+    "Los van de wapening op de fundering. Standaard geogrid bij een gewapende fundering.":
+      "Uafhængigt af fundamentets armering. Standard geonet når fundamentet er armeret.",
+    "Op de onderlaag kies je de wapening. De druklaag stel je hierboven apart in. Overhoogte blijft ongewapend.":
+      "Vælg armeringen på underlaget. Trykfordelingslaget indstilles ovenfor, for sig. Overhøjden forbliver uarmeret.",
     "Geogrid + geocel": "Geonet + gecelle",
     "Zonder wapening → met wapening": "Uarmeret → armeret",
     "Zonder wapening": "Uarmeret",
@@ -995,6 +1007,12 @@
     "Geen wapening op deze laag": "Keine Bewehrung in dieser Schicht",
     "Alleen geogrid": "Nur Geogitter",
     "Alleen geocel": "Nur Geozelle",
+    "Wapening druklaag": "Bewehrung der Druckschicht",
+    "Romfix-systeem": "Romfix-System",
+    "Los van de wapening op de fundering. Standaard geogrid bij een gewapende fundering.":
+      "Unabhängig von der Fundamentbewehrung. Standard ist Geogitter, wenn das Fundament bewehrt ist.",
+    "Op de onderlaag kies je de wapening. De druklaag stel je hierboven apart in. Overhoogte blijft ongewapend.":
+      "Die Bewehrung wählen Sie auf der unteren Schicht. Die Druckschicht stellen Sie darüber getrennt ein. Die Überhöhung bleibt unbewehrt.",
     "Geogrid + geocel": "Geogitter + Geozelle",
     "gewapende celhoogte": "bewehrte Zellhöhe",
     "gewapende overhoogte": "bewehrte Überhöhung",
@@ -1251,6 +1269,12 @@
     "Geen wapening op deze laag": "Sin refuerso riba e kapa aki",
     "Alleen geogrid": "Solamente geogrid",
     "Alleen geocel": "Solamente geocel",
+    "Wapening druklaag": "Refuerso di kapa di preshon",
+    "Romfix-systeem": "Sistema Romfix",
+    "Los van de wapening op de fundering. Standaard geogrid bij een gewapende fundering.":
+      "Apartá di e refuerso di e fundeshi. Geogrid ta estándar ora e fundeshi ta refuersá.",
+    "Op de onderlaag kies je de wapening. De druklaag stel je hierboven apart in. Overhoogte blijft ongewapend.":
+      "Skohe e refuerso riba e kapa abou. E kapa di preshon bo ta seté ariba, apartá. E altu ekstra ta keda sin refuerso.",
     "Geogrid + geocel": "Geogrid + geocel",
     "gewapende celhoogte": "altu di sel reforsá",
     "gewapende overhoogte": "altu ekstra reforsá",
