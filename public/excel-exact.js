@@ -82,8 +82,17 @@ function computeRomfixWerkboek(inp) {
   const lichtMm = Math.max(0, Math.min(B13, Number(inp.B13Licht) || 0));
   const eLicht = lichtMm > 0 ? Number(inp.C13Licht) || C13 : C13;
   const fundDrukMm = Math.max(0, B13 - lichtMm);
-  /** BIMS/schuimglas: SIF 10 op de lichte laag; druklaag gebruikt D19 (geogrid). */
+  /** BIMS/schuimglas: SIF van R'Cel op de lichte laag; druklaag gebruikt D19 (geogrid). */
   const sifLicht = lichtMm > 0 ? Number(inp.sifLicht) || 0 : 0;
+  const lichtWapMm =
+    lichtMm > 0
+      ? inp.lichtWapMm != null && inp.lichtWapMm !== ""
+        ? Math.max(0, Math.min(lichtMm, Number(inp.lichtWapMm)))
+        : sifLicht > 0
+          ? lichtMm
+          : 0
+      : 0;
+  const lichtOngMm = Math.max(0, lichtMm - lichtWapMm);
   const mifLicht =
     inp.mifLicht != null && inp.mifLicht !== "" ? Number(inp.mifLicht) : mif1;
 
@@ -233,9 +242,14 @@ function computeRomfixWerkboek(inp) {
     s.C25 = isVastF13(F13) ? C13 : s.B25 === 0 ? 0 : s.E46;
 
     s.C27 = s.B27 === 0 ? 0 : s.D46;
-    if (sifLicht > 0 && lichtMm > 0 && s.B27 > 0) {
-      /* SIF op de lichte laag: factor × stijfheid eronder (OGV), niet capped op E-schuimglas (50 MPa). */
-      s.C27 = roundExcel(sifLicht * s.D28);
+    if (sifLicht > 0 && lichtMm > 0 && s.B27 > 0 && lichtWapMm > 0) {
+      /* SIF op het gewapende deel van de lichte laag (R'Cel); vulling daarboven ongebonden. */
+      const eWap = roundExcel(sifLicht * s.D28);
+      if (lichtOngMm > 0) {
+        s.C27 = thennEq2(lichtWapMm, eWap, lichtOngMm, eLicht);
+      } else {
+        s.C27 = eWap;
+      }
     }
 
     s.C28 = s.B28 === 0 ? 0 : s.C46;

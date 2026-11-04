@@ -45,7 +45,8 @@ function safeFilePath(urlPath) {
 
 http
   .createServer(async function (req, res) {
-    const url = req.url === "/" ? "/index.html" : req.url.split("?")[0];
+    const urlPath = (req.url || "/").split("?")[0];
+    const url = urlPath === "/" ? "/index.html" : urlPath;
 
     if (url === "/api/expert-verify" && req.method === "POST") {
       try {
