@@ -1333,6 +1333,39 @@ h1 span { color: var(--green); }
   margin-top: 0.25rem;
 }
 
+.romfix-advies {
+  display: block;
+  margin: 0.35rem 0 0.75rem;
+  padding: 0.7rem 0.8rem;
+  background: #eef6e4;
+  border: 1px solid #8fbc6a;
+  border-radius: 8px;
+  color: #14320f;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.laag-kaart .romfix-advies,
+.expert-card .romfix-advies {
+  display: block;
+}
+
+.romfix-advies__title {
+  margin: 0 0 0.3rem;
+  font-weight: 700;
+  font-size: 0.86rem;
+  color: #14320f;
+}
+
+.romfix-advies__body {
+  margin: 0 0 0.45rem;
+}
+
+.romfix-advies__rtex {
+  margin: 0;
+  font-weight: 600;
+}
+
 .field-section {
   margin-bottom: 1.1rem;
 }
@@ -2770,6 +2803,23 @@ body {
     padding: 8pt 10pt;
     background: #eef6e4;
     border: 1px solid #8fbc6a;
+  }
+
+  .print-advice__title {
+    margin: 0 0 4pt;
+    font-size: 11pt;
+  }
+
+  .print-advice__body {
+    margin: 0 0 6pt;
+    font-size: 9pt;
+    font-weight: 400;
+    line-height: 1.4;
+  }
+
+  .print-advice__rtex {
+    margin: 0;
+    font-size: 10pt;
   }
 
   .print-note {

@@ -55,6 +55,9 @@
       "Romfix B.V. · www.romfix.nl · not a binding project calculation",
     "Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.":
       "Romfix recommends an R'tex separation fabric at every transition between foundation materials.",
+    "Romfix-advies (lichte ophoging)": "Romfix advice (lightweight fill)",
+    "Gebruik Argex (of vergelijkbaar) als ophoging tot bodemniveau, omwikkeld in zwaar geotextiel met ca. 1 m overlap/inklemming. Daarboven een druklaag van menggranulaat 0/31,5 met 150 mm PRS-Neoloy / Romfix-cel gevuld met menggranulaat, plus ca. 200 mm menggranulaat erboven. Scheiding met R'tex bij elke materiaalsprong. Asfaltvoorbeeld: 35 mm SMA-NL 11 · 60 mm AC22 bind · 90 mm AC22 base.":
+      "Use Argex (or similar) as fill up to ground level, wrapped in heavy geotextile with about 1 m overlap/anchorage. Above that, a load-distribution layer of mixed granulate 0/31.5 with a 150 mm PRS-Neoloy / Romfix cell filled with mixed granulate, plus about 200 mm of mixed granulate on top. Separate with R'tex at every material transition. Asphalt example: 35 mm SMA-NL 11 · 60 mm AC22 bind · 90 mm AC22 base.",
     "Indicatieve Romfix-berekening (werkboek v2.3). Geen bindende projectberekening. Controleer met ontwerp, verkeersklasse en sondering. Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.":
       "Indicative Romfix calculation (workbook v2.3). Not a binding project calculation. Check against design, traffic class and CPT. Romfix recommends an R'tex separation fabric at every transition between foundation materials.",
     "Kies één toplaag (bestrating, asfalt of beton). Bij bestrating: straatzand, drainagemortel of split eronder — samen bovenconstructie.":
@@ -477,6 +480,9 @@
     "Kopieer deze link:": "Kopiér dette link:",
     "Romfix B.V. · www.romfix.nl · geen bindende projectberekening": "Romfix B.V. · www.romfix.nl · ikke en bindende projektberegning",
     "Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.": "Romfix anbefaler en R'tex-separationsdug ved hver overgang mellem fundamentmaterialer.",
+    "Romfix-advies (lichte ophoging)": "Romfix advice (lightweight fill)",
+    "Gebruik Argex (of vergelijkbaar) als ophoging tot bodemniveau, omwikkeld in zwaar geotextiel met ca. 1 m overlap/inklemming. Daarboven een druklaag van menggranulaat 0/31,5 met 150 mm PRS-Neoloy / Romfix-cel gevuld met menggranulaat, plus ca. 200 mm menggranulaat erboven. Scheiding met R'tex bij elke materiaalsprong. Asfaltvoorbeeld: 35 mm SMA-NL 11 · 60 mm AC22 bind · 90 mm AC22 base.":
+      "Use Argex (or similar) as fill up to ground level, wrapped in heavy geotextile with about 1 m overlap/anchorage. Above that, a load-distribution layer of mixed granulate 0/31.5 with a 150 mm PRS-Neoloy / Romfix cell filled with mixed granulate, plus about 200 mm of mixed granulate on top. Separate with R'tex at every material transition. Asphalt example: 35 mm SMA-NL 11 · 60 mm AC22 bind · 90 mm AC22 base.",
     "Indicatieve Romfix-berekening (werkboek v2.3). Geen bindende projectberekening. Controleer met ontwerp, verkeersklasse en sondering. Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.": "Vejledende Romfix-beregning (håndbog v2.3). Ikke en bindende projektberegning. Kontrollér med design, trafikklasse og CPT. Romfix anbefaler en R'tex-separationsdug ved hver overgang mellem fundamentmaterialer.",
     "Kies één toplaag (bestrating, asfalt of beton). Bij bestrating: straatzand, drainagemortel of split eronder — samen bovenconstructie.": "Vælg ét toplag (belægning, asfalt eller beton). Ved belægning: lægsand, drænmorter eller skærver nedenunder — tilsammen overbygning.",
     "Fundering + overhoogte en Ondergrond verbetering. Constructietype bepaalt Capping/RoadBase.": "Fundament + overhøjde og underbundsforbedring. Konstruktionstype bestemmer Capping/RoadBase.",
@@ -1083,6 +1089,9 @@
       "Romfix B.V. · www.romfix.nl · keine verbindliche Projektberechnung",
     "Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.":
       "Romfix empfiehlt bei jedem Übergang zwischen Fundamentmaterialien ein R'tex-Trennvlies.",
+    "Romfix-advies (lichte ophoging)": "Romfix advice (lightweight fill)",
+    "Gebruik Argex (of vergelijkbaar) als ophoging tot bodemniveau, omwikkeld in zwaar geotextiel met ca. 1 m overlap/inklemming. Daarboven een druklaag van menggranulaat 0/31,5 met 150 mm PRS-Neoloy / Romfix-cel gevuld met menggranulaat, plus ca. 200 mm menggranulaat erboven. Scheiding met R'tex bij elke materiaalsprong. Asfaltvoorbeeld: 35 mm SMA-NL 11 · 60 mm AC22 bind · 90 mm AC22 base.":
+      "Use Argex (or similar) as fill up to ground level, wrapped in heavy geotextile with about 1 m overlap/anchorage. Above that, a load-distribution layer of mixed granulate 0/31.5 with a 150 mm PRS-Neoloy / Romfix cell filled with mixed granulate, plus about 200 mm of mixed granulate on top. Separate with R'tex at every material transition. Asphalt example: 35 mm SMA-NL 11 · 60 mm AC22 bind · 90 mm AC22 base.",
     "Indicatieve Romfix-berekening (werkboek v2.3). Geen bindende projectberekening. Controleer met ontwerp, verkeersklasse en sondering. Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.":
       "Indikative Romfix-Berechnung (Arbeitsbuch v2.3). Keine verbindliche Projektberechnung. Mit Entwurf, Verkehrsklasse und Sondierung prüfen. Romfix empfiehlt bei jedem Übergang zwischen Fundamentmaterialien ein R'tex-Trennvlies.",
     "PDF klaar. Werkt de download niet? Tik op ‘Tik hier om de PDF te openen’.":
@@ -1330,6 +1339,9 @@
     "Verschil gewapend t.o.v. ongewapend": "Diferensia reforsá kompará ku sin refuerso",
     "Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.":
       "Romfix ta rekomendá un paña di separashon R'tex na kada transishon di material di fundeshi.",
+    "Romfix-advies (lichte ophoging)": "Romfix advice (lightweight fill)",
+    "Gebruik Argex (of vergelijkbaar) als ophoging tot bodemniveau, omwikkeld in zwaar geotextiel met ca. 1 m overlap/inklemming. Daarboven een druklaag van menggranulaat 0/31,5 met 150 mm PRS-Neoloy / Romfix-cel gevuld met menggranulaat, plus ca. 200 mm menggranulaat erboven. Scheiding met R'tex bij elke materiaalsprong. Asfaltvoorbeeld: 35 mm SMA-NL 11 · 60 mm AC22 bind · 90 mm AC22 base.":
+      "Use Argex (or similar) as fill up to ground level, wrapped in heavy geotextile with about 1 m overlap/anchorage. Above that, a load-distribution layer of mixed granulate 0/31.5 with a 150 mm PRS-Neoloy / Romfix cell filled with mixed granulate, plus about 200 mm of mixed granulate on top. Separate with R'tex at every material transition. Asphalt example: 35 mm SMA-NL 11 · 60 mm AC22 bind · 90 mm AC22 base.",
     "Indicatieve Romfix-berekening (werkboek v2.3). Geen bindende projectberekening. Controleer met ontwerp, verkeersklasse en sondering. Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.":
       "Kalkulashon indikativo di Romfix (buki di trabou v2.3). No ta un kalkulashon di proyekto obligatorio. Kontrolá ku diseño, klase di tráfiko i sondeo. Romfix ta rekomendá un paña di separashon R'tex na kada transishon di material di fundeshi.",
   };
