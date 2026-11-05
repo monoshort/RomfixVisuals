@@ -90,7 +90,7 @@
      * E_dyn 150–300 MPa (ophoogrichtlijn). Zandboek: E_dyn ≈ 2–2,5 × E_stat, dus statisch vanaf 60.
      * Dichtheid in het werk verdicht 850–1.150 kg/m³; hier de onderkant.
      */
-    { label: "Puimsteen", mpa: 60, bindend: false, kgM3: 850 },
+    { label: "Puimsteen / Bims", mpa: 60, bindend: false, kgM3: 850 },
     { label: "Schuimglas", mpa: 50, bindend: false, kgM3: 200 },
   ];
   /** CROW: ontwerpstijfheid 600 MPa, verdicht in het werk ca. 2.000 kg/m³. Zelfbindend, net als menggranulaat. */
@@ -111,7 +111,18 @@
     bindend: false,
     kgM3: 550,
   };
-  const MATERIAAL_LAAG = MATERIAAL_LAAG_KERN.concat([MATERIAAL_BETONGRANULAAT, MATERIAAL_ARGEX]);
+  /** Licht vulmateriaal; indicatieve stijfheid in dezelfde band als de andere lichte granulaten. */
+  const MATERIAAL_WINGS = {
+    label: "Wings",
+    mpa: 40,
+    bindend: false,
+    kgM3: 400,
+  };
+  const MATERIAAL_LAAG = MATERIAAL_LAAG_KERN.concat([
+    MATERIAAL_BETONGRANULAAT,
+    MATERIAAL_ARGEX,
+    MATERIAAL_WINGS,
+  ]);
 
   const MATERIAAL_ONDERGROND = [
     { label: "Zand", mpa: 100, kgM3: 1700 },
@@ -123,10 +134,18 @@
   const REFERENTIE_KLEI_KG_M3 = 1450;
 
   /** Betongranulaat achteraan, zodat oude deel-indices van ondergrond blijven kloppen. */
-  const MATERIAAL_ALLE = MATERIAAL_LAAG_KERN.concat(MATERIAAL_ONDERGROND, [MATERIAAL_BETONGRANULAAT]);
+  const MATERIAAL_ALLE = MATERIAAL_LAAG_KERN.concat(MATERIAAL_ONDERGROND, [
+    MATERIAAL_BETONGRANULAAT,
+    MATERIAAL_ARGEX,
+    MATERIAAL_WINGS,
+  ]);
 
-  /** Puimsteen, schuimglas en Argex vereisen een dragende druklaag erboven. */
-  const LICHT_FUNDERING_LABELS = ["Puimsteen", "Schuimglas", "Argex"];
+  /**
+   * Lichte vulling wordt de ondergrond (eigen catalogus-E). De fundering daarboven
+   * is steenslag. Geen extra laag meer ín de fundering — die split blijft uit.
+   */
+  const LICHT_FUNDERING_LABELS = [];
+  const STEENSLAG_LABEL = "Steenslag/steenmengsels";
   const DRUKLAAG_DEFAULT_MM = 150;
   const DRUKLAAG_MIN_MM = 80;
   const DRUKLAAG_MAX_MM = 400;
@@ -522,33 +541,71 @@
   function normalizeLichtFunderingLabel(label) {
     if (!label) return "";
     const s = String(label).trim();
-    if (s === "Schuimglas" || s === "schuimglas" || s === "Glasschuim" || s === "glasschuim") {
-      return "Schuimglas";
-    }
+    const low = s.toLowerCase();
+    if (low === "schuimglas" || low === "glasschuim") return "Schuimglas";
     if (
-      s === "BIMS" ||
-      s === "bims" ||
-      s === "Bims" ||
-      s === "Puimsteen" ||
-      s === "puimsteen" ||
-      s === "puinsteen"
+      low === "bims" ||
+      low === "puimsteen" ||
+      low === "puinsteen" ||
+      low === "tuinsteen" ||
+      low === "puimsteen / bims" ||
+      low === "puimsteen/bims" ||
+      low === "bims / puimsteen"
     ) {
-      return "Puimsteen";
+      return "Puimsteen / Bims";
     }
-    if (s === "Argex" || s === "argex" || s === "ARGEX") return "Argex";
+    if (low === "argex") return "Argex";
+    if (low === "wings") return "Wings";
     return "";
   }
 
   function isLichtFunderingLabel(label) {
-    return (
-      LICHT_FUNDERING_LABELS.indexOf(label) >= 0 ||
-      normalizeLichtFunderingLabel(label) !== ""
-    );
+    return LICHT_FUNDERING_LABELS.indexOf(label) >= 0;
+  }
+
+  function lightOndergrondEntry(label) {
+    const canon = normalizeLichtFunderingLabel(label);
+    if (!canon) return null;
+    const lists = MATERIAAL_LAAG.concat(MATERIAAL_ALLE);
+    for (let i = 0; i < lists.length; i++) {
+      if (lists[i].label === canon) return lists[i];
+    }
+    return null;
+  }
+
+  /** Lichte keuze wordt ondergrond; daarboven steenslag met geogrid (cel blijft kiesbaar). */
+  function applyLightFillAsOndergrond(label) {
+    const entry = lightOndergrondEntry(label);
+    const steen = MATERIAAL_LAAG.find(function (m) {
+      return m.label === STEENSLAG_LABEL;
+    });
+    if (!entry || !steen) return false;
+    materiaalKeuze.eOndergrond = entry.label;
+    values.eOndergrond = entry.mpa;
+    materiaalKeuze.eFundering = steen.label;
+    values.eFundering = steen.mpa;
+    materiaalKeuze.eDruklaag = steen.label;
+    values.eDruklaag = steen.mpa;
+    values.druklaagAan = false;
+    values.drukWapVrij = false;
+    wapeningFund = true;
+    values.wapTypeFund = WAPENING_DRUKLAAG_TYPE;
+    const grid = wapeningTypeById(WAPENING_DRUKLAAG_TYPE);
+    if (grid) values.sifFundering = grid.sif;
+    expertDashBuilt = false;
+    return true;
+  }
+
+  function migrateLightFillToOndergrond() {
+    if (!lightOndergrondEntry(materiaalKeuze.eFundering)) return false;
+    return applyLightFillAsOndergrond(materiaalKeuze.eFundering);
   }
 
   function normalizeMateriaalKeuzeAliases() {
-    const licht = normalizeLichtFunderingLabel(materiaalKeuze.eFundering);
-    if (licht) materiaalKeuze.eFundering = licht;
+    ["eFundering", "eOndergrond", "eOgv", "eDruklaag"].forEach(function (key) {
+      const licht = normalizeLichtFunderingLabel(materiaalKeuze[key]);
+      if (licht) materiaalKeuze[key] = licht;
+    });
   }
 
   function lichtFunderingEntryForLabel(label) {
@@ -608,7 +665,7 @@
     const maxD = Math.min(DRUKLAAG_MAX_MM, Math.max(DRUKLAAG_MIN_MM, basis - LICHT_MIN_MM));
     return {
       key: "druklaagDikte",
-      label: "Druklaag",
+      label: "3B · Druklaag",
       unit: "mm",
       min: DRUKLAAG_MIN_MM,
       max: maxD,
@@ -621,7 +678,7 @@
     values.lichtDikte = f.lichtDikte;
     return {
       key: "lichtDikte",
-      label: activeLichtLabel(),
+      label: "3A · " + activeLichtLabel(),
       unit: "mm",
       min: LICHT_MIN_MM,
       max: LICHT_MAX_MM,
@@ -913,7 +970,8 @@
   function effectiveDrukTypeId(fundOn) {
     if (!isDruklaagActief()) return "none";
     if (values.drukWapVrij) return druklaagWapeningTypeId();
-    return fundOn ? normalizeWapeningId(values.wapTypeFund || WAPENING_DRUKLAAG_TYPE) : "none";
+    /* Standaard geogrid, ook als de funderingsschakelaar uit staat. */
+    return WAPENING_DRUKLAAG_TYPE || fundOn;
   }
 
   function druklaagOptieLabel(t) {
@@ -3302,6 +3360,12 @@
     const fromList = list.find(function (m) {
       return m.label === label || normalizeLichtFunderingLabel(m.label) === label;
     });
+    if (key === "eFundering" && lightOndergrondEntry(fromList ? fromList.label : label)) {
+      applyLightFillAsOndergrond(fromList ? fromList.label : label);
+      invalidateCalcCache();
+      render();
+      return;
+    }
     materiaalKeuze[key] = fromList ? fromList.label : label;
     const field = fieldDefForKey(key, fields);
     if (!field) return;
@@ -3793,6 +3857,9 @@
 
   function fundBandNaam(basisNaam) {
     const mat = materiaalLabel("eFundering");
+    if (lightOndergrondEntry(materiaalKeuze.eOndergrond)) {
+      return "Druklaag · " + (mat || STEENSLAG_LABEL);
+    }
     return mat ? basisNaam + " · " + mat : basisNaam;
   }
 
@@ -4204,11 +4271,13 @@
           ? (wapeningFund && lichtHasWapening()) || druklaagHasWapening()
           : wapeningFund;
         const wapAan = fundWapZichtbaar || wapeningOgv;
+        /* Getal hoort bij het label: druklaag-geogrid telt mee, niet alleen de schakelaar. */
+        const fundForNumber = wapeningFund || (isDruklaagActief() && druklaagHasWapening());
         el.classList.toggle("visual-col-label--rust", !wapAan);
         el.innerHTML =
           tx(wapAan ? "Gewapend" : "Opbouw") +
           '<span class="visual-col-mpa">' +
-          profielConstructieMpaText(wapeningFund, wapeningOgv) +
+          profielConstructieMpaText(fundForNumber, wapeningOgv) +
           "</span>" +
           '<span class="visual-col-mpa-sub">' +
           tx("Fundering") +
@@ -5449,6 +5518,7 @@
   function render() {
     syncSheetFromInvoer();
     normalizeMateriaalKeuzeAliases();
+    migrateLightFillToOndergrond();
     syncFunderingModusVanMateriaal();
     syncDruklaagFromFundering();
     syncMifFromWapening();
