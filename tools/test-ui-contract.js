@@ -38,8 +38,8 @@ must(html.includes("app.js?v=20261104-druklaag"), "scriptversie blijft 20261104-
 must(html.includes("styles.css?v=20261104-druklaag"), "stijlversie blijft 20261104-druklaag");
 
 const same = compareHostReports([
-  { etag: "abc", fingerprint: "app.js?v=20261104-druklaag", commit: "2d0807f" },
-  { etag: "abc", fingerprint: "app.js?v=20261104-druklaag", commit: "2d0807f" },
+  { origin: "a", status: 200, etag: "abc", fingerprint: "app.js?v=20261104-druklaag", commit: "2d0807f" },
+  { origin: "b", status: 200, etag: "abc", fingerprint: "app.js?v=20261104-druklaag", commit: "2d0807f" },
 ]);
 must(same.length === 0, "gelijke hosts zijn synchroon");
 
@@ -56,8 +56,8 @@ const half = compareHostReports([
 must(half.length > 0, "versie op één host faalt");
 
 const legacy = compareHostReports([
-  { etag: "ea821f", fingerprint: "app.js?v=20261104-druklaag", commit: null },
-  { etag: "ea821f", fingerprint: "app.js?v=20261104-druklaag", commit: null },
+  { origin: "a", status: 200, etag: "ea821f", fingerprint: "app.js?v=20261104-druklaag", commit: null },
+  { origin: "b", status: 200, etag: "ea821f", fingerprint: "app.js?v=20261104-druklaag", commit: null },
 ]);
 must(legacy.length === 0, "twee hosts zonder versie-endpoint mogen gelijk zijn");
 

@@ -1,33 +1,25 @@
-name: deployment-identity
+name: preview-identity
 
 on:
   repository_dispatch:
     types:
       - vercel.deployment.success
-      - vercel.deployment.ready
-  workflow_dispatch:
 
 permissions:
   contents: read
-  statuses: write
 
 jobs:
-  identity:
-    name: identity
-    runs-on: ubuntu-latest
+  preview:
+    name: preview
+    runs-on: ubuntu-24.04
     steps:
-      - uses: vercel/repository-dispatch/actions/status@v1
-        if: github.event_name == 'repository_dispatch'
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Deployment hoort bij de git-commit
-        if: github.event_name == 'repository_dispatch'
+      - name: Alleen de preview-URL
         env:
-          TARGET_URL: ${{ github.event.client_payload.url }}
-          EXPECTED_COMMIT: ${{ github.event.client_payload.git.sha }}
+          EVENT_NAME: repository_dispatch
+          EVENT_ACTION: ${{ github.event.action }}
+          CLIENT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
         run: node tools/check-deployment.js
-      - name: Beide hosts, handmatig na publicatie
-        if: github.event_name == 'workflow_dispatch'
-        run: node tools/check-hosts.js --require-commit

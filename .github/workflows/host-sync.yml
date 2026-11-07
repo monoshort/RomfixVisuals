@@ -1,0 +1,37 @@
+name: host-sync
+
+on:
+  workflow_run:
+    workflows: ["test"]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-host-sync
+  cancel-in-progress: true
+
+jobs:
+  hosts:
+    name: hosts
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'master')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Productiehosts tegen de huidige master
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+          HOST_SYNC_ATTEMPTS: "15"
+          HOST_SYNC_DELAY_MS: "20000"
+        run: node tools/check-hosts.js --require-commit --follow-master
