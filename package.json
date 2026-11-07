@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node tools/test-licht-sif.js && node tools/test-ui-contract.js && node tools/test-source-version.js",
+    "test": "node tools/test-licht-sif.js && node tools/test-ui-contract.js && node tools/test-host-sync.js && node tools/test-source-version.js",
     "test:ui": "playwright test",
     "check:hosts": "node tools/check-hosts.js --require-commit",
     "deploy": "node tools/no-direct-deploy.js"
