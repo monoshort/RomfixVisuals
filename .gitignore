@@ -9,3 +9,6 @@ _xlsx_unzip/
 _romfix.zip
 node_modules/
 .vercel
+test-results/
+playwright-report/
+blob-report/

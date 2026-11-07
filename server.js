@@ -3,7 +3,8 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "public");
-const port = 5173;
+const port = Number(process.env.PORT) || 5173;
+const { sourceVersion, versionHeaders } = require("./lib/source-version");
 const MAX_BODY_BYTES = 4096;
 const EXPERT_PASSWORD = process.env.ROMFIX_EXPERT_PASSWORD || "Romfix123!";
 const types = {
@@ -60,6 +61,13 @@ http
         res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" });
         res.end(JSON.stringify({ ok: false }));
       }
+      return;
+    }
+
+    if (url === "/api/version" && (req.method === "GET" || req.method === "HEAD")) {
+      const body = JSON.stringify(sourceVersion());
+      res.writeHead(200, versionHeaders(body));
+      res.end(req.method === "HEAD" ? "" : body);
       return;
     }
 
