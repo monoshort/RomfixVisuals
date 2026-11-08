@@ -127,6 +127,12 @@
 
   /** Puimsteen, schuimglas en Argex vereisen een dragende druklaag erboven. */
   const LICHT_FUNDERING_LABELS = ["Puimsteen", "Schuimglas", "Argex"];
+  /** Advies bij lichte ophoging. Wijzigt de Argex-rekenketen niet. */
+  const RTEX_SCHEIDING_ADVIES =
+    "Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.";
+  const LICHT_OPHOGING_ADVIES_TITEL = "Romfix-advies (lichte ophoging)";
+  const LICHT_OPHOGING_ADVIES =
+    "Gebruik Argex (of vergelijkbaar) als ophoging tot bodemniveau, omwikkeld in zwaar geotextiel met ca. 1 m overlap/inklemming. Daarboven een druklaag van menggranulaat 0/31,5 met 150 mm PRS-Neoloy / Romfix-cel gevuld met menggranulaat, plus ca. 200 mm menggranulaat erboven. Scheiding met R'tex bij elke materiaalsprong. Asfaltvoorbeeld: 35 mm SMA-NL 11 · 60 mm AC22 bind · 90 mm AC22 base.";
   const DRUKLAAG_DEFAULT_MM = 150;
   const DRUKLAAG_MIN_MM = 80;
   const DRUKLAAG_MAX_MM = 400;
@@ -583,6 +589,23 @@
     return isLichtFunderingActive();
   }
 
+  /** Groene tip in het funderingspaneel. Alleen bij lichte ophoging, plus de R'tex-regel. */
+  function lichtOphogingAdviesHtml() {
+    if (!isLichtFunderingActive()) return "";
+    return (
+      '<aside class="romfix-advies" role="note" data-no-i18n>' +
+      '<p class="romfix-advies__title">' +
+      htmlEscape(tx(LICHT_OPHOGING_ADVIES_TITEL)) +
+      "</p>" +
+      '<p class="romfix-advies__body">' +
+      htmlEscape(tx(LICHT_OPHOGING_ADVIES)) +
+      "</p>" +
+      '<p class="romfix-advies__rtex">' +
+      htmlEscape(tx(RTEX_SCHEIDING_ADVIES)) +
+      "</p></aside>"
+    );
+  }
+
   function clampDruklaagDiktes() {
     if (!isDruklaagActief()) return;
     let basis = Math.max(50, Math.min(FUNDERING_BASIS_MAX_MM, Number(values.funderingBasis) || 0));
@@ -766,6 +789,7 @@
       step: 5,
     };
     return (
+      lichtOphogingAdviesHtml() +
       lichtDrukDikteSectionHtml() +
       overhoogteInvoerHtml() +
       '<div class="field-section">' +
@@ -5054,7 +5078,10 @@
           f.dikteTotaal +
           " mm" +
           (f.druklaagAan ? " · licht " + f.lichtDikte + " + druk " + f.drukBasis : ""),
-        sectionHtml("Dikte", FIELDS.fund.dikte, false) +
+        '<div id="expert-licht-advies">' +
+          lichtOphogingAdviesHtml() +
+          "</div>" +
+          sectionHtml("Dikte", FIELDS.fund.dikte, false) +
           (f.druklaagAan ? lichtDrukDikteSectionHtml() : "") +
           (f.druklaagAan
             ? '<div data-expert-wap-section="fund">' +
@@ -5269,6 +5296,8 @@
     if (!expertDashboardEl || !expertMode) return;
     syncMifFromWapening();
     invalidateCalcCache();
+    const lichtAdvies = document.getElementById("expert-licht-advies");
+    if (lichtAdvies) lichtAdvies.innerHTML = lichtOphogingAdviesHtml();
     const kpi = document.getElementById("expert-kpi");
     if (kpi) kpi.innerHTML = expertKpiHtml();
     const calc = document.getElementById("expert-calc-live");
@@ -6606,7 +6635,8 @@
       layersOng: pdfFundLayers(layersOng),
       share: shareUrl(),
       disclaimer:
-        "Indicatieve Romfix-berekening (werkboek v2.3). Geen bindende projectberekening. Controleer met ontwerp, verkeersklasse en sondering. Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.",
+        "Indicatieve Romfix-berekening (werkboek v2.3). Geen bindende projectberekening. Controleer met ontwerp, verkeersklasse en sondering. " +
+        RTEX_SCHEIDING_ADVIES,
     };
     return localizeReport(report);
   }
@@ -6665,6 +6695,26 @@
       el.removeAttribute("id");
     });
     return '<div class="print-visuals">' + node.outerHTML + "</div>";
+  }
+
+  function printToelichtingHtml() {
+    const rtex =
+      "<strong>" + htmlEscape(tx(RTEX_SCHEIDING_ADVIES)) + "</strong>";
+    if (!isLichtFunderingActive()) {
+      return '<p class="print-advice" data-no-i18n>' + rtex + "</p>";
+    }
+    return (
+      '<div class="print-advice" data-no-i18n>' +
+      '<p class="print-advice__title"><strong>' +
+      htmlEscape(tx(LICHT_OPHOGING_ADVIES_TITEL)) +
+      "</strong></p>" +
+      '<p class="print-advice__body">' +
+      htmlEscape(tx(LICHT_OPHOGING_ADVIES)) +
+      "</p>" +
+      '<p class="print-advice__rtex">' +
+      rtex +
+      "</p></div>"
+    );
   }
 
   function buildPrintReport() {
@@ -6727,11 +6777,7 @@
       "<h2>" + tx("Invoer") + "</h2>" +
       htmlTable([tx("Onderdeel"), tx("Waarde")], r.invoer, true) +
       "<h2>" + tx("Toelichting") + "</h2>" +
-      '<p class="print-advice"><strong>' +
-      htmlEscape(
-        "Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek."
-      ) +
-      "</strong></p>" +
+      printToelichtingHtml() +
       '<p class="print-note">' +
       htmlEscape(r.disclaimer) +
       "</p>";
@@ -7123,18 +7169,42 @@
     drawTable([tx("Onderdeel"), tx("Waarde")], r.invoer, [175, 340], { kv: true, size: 8 });
 
     heading(tx("Toelichting"));
-    const advies =
-      "Romfix adviseert bij elke overgang van funderingsmateriaal een R'tex scheidingsdoek.";
-    const adviesLines = pdfWrap(tx(advies), 11, contentW - 16, true);
-    const adviesH = 16 + adviesLines.length * 14;
-    ensure(adviesH + 8);
-    fillRect(margin, y - adviesH, contentW, adviesH, rgb(0.93, 0.97, 0.86));
-    let ay = y - 16;
-    adviesLines.forEach(function (ln) {
-      textAt(margin + 8, ay, 11, ln, true, rgb(0.1, 0.25, 0.12));
-      ay -= 14;
-    });
-    y -= adviesH + 8;
+    function drawGreenNote(blocks) {
+      const wrapped = [];
+      blocks.forEach(function (b, bi) {
+        pdfWrap(b.text, b.size, contentW - 16, !!b.bold).forEach(function (ln, li) {
+          wrapped.push({
+            text: ln,
+            size: b.size,
+            bold: !!b.bold,
+            lead: li === 0 && bi > 0 ? b.gap || 4 : 0,
+          });
+        });
+      });
+      let h = 12;
+      wrapped.forEach(function (w) {
+        h += w.lead + (w.size + 4);
+      });
+      h += 8;
+      ensure(h + 8);
+      fillRect(margin, y - h, contentW, h, rgb(0.93, 0.97, 0.86));
+      let ay = y - 16;
+      wrapped.forEach(function (w) {
+        ay -= w.lead;
+        textAt(margin + 8, ay, w.size, w.text, w.bold, rgb(0.1, 0.25, 0.12));
+        ay -= w.size + 4;
+      });
+      y -= h + 8;
+    }
+    if (isLichtFunderingActive()) {
+      drawGreenNote([
+        { text: tx(LICHT_OPHOGING_ADVIES_TITEL), size: 11, bold: true },
+        { text: tx(LICHT_OPHOGING_ADVIES), size: 8.5, bold: false, gap: 5 },
+        { text: tx(RTEX_SCHEIDING_ADVIES), size: 9.5, bold: true, gap: 6 },
+      ]);
+    } else {
+      drawGreenNote([{ text: tx(RTEX_SCHEIDING_ADVIES), size: 11, bold: true }]);
+    }
     para(r.disclaimer, 8);
     y -= 8;
     textAt(margin, 28, 8, tx("Romfix B.V. · www.romfix.nl · geen bindende projectberekening"), false, rgb(0.4, 0.45, 0.5));
